@@ -1,0 +1,33 @@
+{
+  "name": "yield-agent",
+  "version": "1.0.0",
+  "description": "YieldAgent - AI-Powered Yield Management Protocol on X Layer",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "agent"
+  ],
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:xlayer": "hardhat run scripts/deploy.ts --network xlayer",
+    "deploy:xlayer-testnet": "hardhat run scripts/deploy.ts --network xlayerTestnet",
+    "agent:start": "cd agent && npm start",
+    "frontend:dev": "cd frontend && npm run dev"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "hardhat": "^2.22.0",
+    "typescript": "^5.4.0",
+    "ts-node": "^10.9.0",
+    "@types/node": "^20.0.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.0",
+    "@uniswap/v3-core": "^1.0.1",
+    "@uniswap/v3-periphery": "^1.4.4",
+    "ethers": "^6.13.0",
+    "dotenv": "^16.4.0"
+  }
+}

@@ -1,0 +1,165 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+:root {
+  --bg: #0a0a0f;
+  --bg-card: #13131a;
+  --bg-border: #1f1f2a;
+  --accent: #00ffa3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: var(--bg);
+  color: white;
+  font-family: Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2a2a3a;
+}
+
+@layer components {
+  .card {
+    @apply bg-bg-card border border-bg-border rounded-2xl p-6;
+  }
+
+  .card-hover {
+    @apply transition-all duration-200 hover:border-accent/30 hover:bg-bg-hover;
+  }
+
+  .btn {
+    @apply px-4 py-2 rounded-xl font-semibold transition-all duration-150;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent text-bg hover:bg-accent-dim;
+  }
+
+  .btn-ghost {
+    @apply btn bg-bg-border hover:bg-bg-hover text-white border border-bg-border;
+  }
+
+  .stat-label {
+    @apply text-xs uppercase tracking-wider text-white/50 font-medium;
+  }
+
+  .stat-value {
+    @apply text-2xl font-bold font-mono text-white;
+  }
+
+  .badge {
+    @apply px-2 py-1 rounded-md text-xs font-mono uppercase tracking-wider;
+  }
+
+  .badge-ok {
+    @apply badge bg-accent/10 text-accent border border-accent/20;
+  }
+
+  .badge-warn {
+    @apply badge bg-warn/10 text-warn border border-warn/20;
+  }
+
+  .badge-danger {
+    @apply badge bg-danger/10 text-danger border border-danger/20;
+  }
+
+  .badge-neutral {
+    @apply badge bg-bg-border text-white/60;
+  }
+}
+
+.glow-text {
+  text-shadow: 0 0 20px rgba(0, 255, 163, 0.5);
+}
+
+/* ──────────── Animations ──────────── */
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-down-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.5s ease-out both;
+}
+
+.animate-slide-down-in {
+  animation: slide-down-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Reveal-on-scroll: starts hidden, JS adds .is-visible to trigger */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .animate-fade-in,
+  .animate-slide-down-in,
+  .reveal {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

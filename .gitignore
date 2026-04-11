@@ -1,0 +1,32 @@
+node_modules/
+dist/
+cache/
+artifacts/
+typechain-types/
+coverage/
+.env
+.env.local
+*.log
+
+# Next.js
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Deployment artifacts — the per-chain `deployments/<chainId>.json` files
+# ARE committed (they're the audit trail judges need), but the root-level
+# "latest" symlink-ish file is per-dev convenience only.
+deployment.json
+
+# Dev-only Claude Code session state
+.claude/
+journal/
+*.smoke.json
+
+# OS / Editor
+.DS_Store
+.vscode/
+.idea/
+*.swp

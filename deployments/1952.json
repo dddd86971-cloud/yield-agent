@@ -1,0 +1,13 @@
+{
+  "network": "xlayerTestnet",
+  "chainId": 1952,
+  "deployer": "0x2E2FC9d6daf5044F53412eb49dF5e82a9cFB3838",
+  "agent": "0x2e2fc9d6daf5044f53412eb49df5e82a9cfb3838",
+  "contracts": {
+    "DecisionLogger": "0x5989f764bC20072e6554860547CfEC474877892C",
+    "StrategyManager": "0x2180fA2e3F89E314941b23B7acC0e60513766712",
+    "FollowVaultFactory": "0x9203C9d95115652b5799ab9e9A640DDEB0879F85"
+  },
+  "blockNumber": 27363103,
+  "timestamp": "2026-04-10T11:52:20.582Z"
+}

@@ -1,0 +1,18 @@
+{
+  "network": "xlayer",
+  "chainId": 196,
+  "deployer": "0x2E2FC9d6daf5044F53412eb49dF5e82a9cFB3838",
+  "agent": "0x2e2fc9d6daf5044f53412eb49df5e82a9cfb3838",
+  "contracts": {
+    "DecisionLogger": "0x5989f764bC20072e6554860547CfEC474877892C",
+    "StrategyManager": "0x2180fA2e3F89E314941b23B7acC0e60513766712",
+    "FollowVaultFactory": "0x9203C9d95115652b5799ab9e9A640DDEB0879F85"
+  },
+  "txs": {
+    "setAuthorized": "0xd5b72bb50e4c46d1f03b000097f881362bc204a18defaa8768fef5f89ed5e712",
+    "setAgent": "0xafa2837b9649bf51a17ef76fbebd13c26d5d4f58211da41822a7ead059a9c2a0"
+  },
+  "blockNumber": 57104843,
+  "timestamp": "2026-04-11T02:17:59.777Z",
+  "note": "Resumed from a mid-flow UND_ERR_CONNECT_TIMEOUT after DecisionLogger + StrategyManager had already been mined at nonce 0 and 1."
+}
