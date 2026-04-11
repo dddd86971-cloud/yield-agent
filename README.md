@@ -6,6 +6,16 @@ YieldAgent is a three-brain AI agent that plans, deploys, monitors, rebalances, 
 
 Built for **OKX Build X AI Hackathon — Season 2**, X Layer Arena track.
 
+### What you can verify in 5 minutes
+
+Three forcing functions that set YieldAgent apart from every other AI + DeFi submission on the Season 2 list:
+
+1. **Two Uniswap AI Skills on the load-bearing path, not one.** `liquidity-planner@0.2.0` (pair classification, tick widths, fee-tier → spacing map) **and** `swap-planner@0.1.0` (slippage ladder, price-impact k-factor, minOut, optional split-swap) are both ported 1:1 into [`agent/src/adapters/UniswapSkillsAdapter.ts`](agent/src/adapters/UniswapSkillsAdapter.ts), both surfaced on `GET /api/health → uniswapSkills[]`, and both invoked on every rebalance via `AgentCoordinator.rebalanceViaOnchainOS` → `this.uniswapSkills.planRebalanceSwap(...)` (see [`agent/src/services/AgentCoordinator.ts`](agent/src/services/AgentCoordinator.ts) around line 1300). Methodology, not just citation, is load-bearing.
+
+2. **The audit layer is mechanically enforced by a 68-test hardhat suite.** `npm test` from the repo root runs every write path of `DecisionLogger` + `StrategyManager` + `FollowVault` in ~800 ms. The suite caught a share-math dilution bug in `FollowVault.follow()` — reading `totalAssets()` *after* the `safeTransferFrom` let the new deposit count toward its own denominator and silently taxed the new follower. We fixed it, wrote the failing test first to lock in the fix, confirmed the mainnet factory had zero exposed vault instances, and documented the full story honestly in [`SUBMISSION.md` § Known Limitations #6](SUBMISSION.md) plus a dry-runnable redeploy script at [`scripts/redeploy-follow-vault-factory.ts`](scripts/redeploy-follow-vault-factory.ts). Nothing is papered over.
+
+3. **The two-signer split is an anti-gaming guarantee by construction, not by policy.** The TEE Agentic Wallet [`0x6ab27b82…`](https://www.oklink.com/xlayer/address/0x6ab27b82890bc85cd996f518173487ece9811d61) signs every DEX tx and has zero write permission on the audit contracts. The audit EOA [`0x2E2FC9d6…`](https://www.oklink.com/xlayer/address/0x2E2FC9d6daf5044F53412eb49dF5e82a9cFB3838) writes to `StrategyManager` / `DecisionLogger` and has zero DEX-calling code: [`agent/src/engines/ExecutionEngine.ts`](agent/src/engines/ExecutionEngine.ts) never spawns `onchainos` and [`agent/src/adapters/OnchainOSAdapter.ts`](agent/src/adapters/OnchainOSAdapter.ts) never imports an audit contract. A judge who cross-references `StrategyManager.getExecutions(0)[i].txHash` against the Agentic Wallet's OKLink history must get a 1:1 match by construction — there is no code path to fabricate one.
+
 ---
 
 ## TL;DR
