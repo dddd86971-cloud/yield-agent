@@ -63,9 +63,11 @@ Scroll to LPRangeChart.
 
 > "The band shows the Uniswap-skill-computed range. Pulse means 'price is inside the band, HOLD'."
 
-(Click Deploy if not already deployed)
+Scroll back up to the **Deploy & Monitor** card. The pool address is pre-filled with the mainnet strategyId 0 pool (USDT/OKB 0.3%). Click **Deploy Strategy**. A confirmation panel appears; it spells out that, in `live` execution mode, this will broadcast a real `onchainos swap execute` on X Layer mainnet. Click **Confirm Deploy**.
 
-> "On click, the agent writes two transactions in sequence. First, `StrategyManager.deployStrategy` — the on-chain audit row that records the three-brain thesis, tick bounds, and risk profile. Second, `OnchainOSAdapter.swap()` — an `onchainos swap execute` signed inside the Agentic Wallet TEE that swaps the stable principal into the volatile side. There's no V3 NFT mint — we pivoted to swap mode because `defi invest`'s permit flow reverts on X Layer (see SUBMISSION.md §Known Limitations). The skill-computed range becomes a directional trigger band instead: cross-above → sell, cross-below → buy. **And here's the key part…**"
+> "On click, the agent writes two transactions in sequence. First, `StrategyManager.deployStrategy` — the on-chain audit row that records the three-brain thesis, tick bounds, and risk profile. Second, `OnchainOSAdapter.swap()` — an `onchainos swap execute` signed inside the Agentic Wallet TEE that swaps the stable principal into the volatile side. The card shows both tx hashes — audit tx on `StrategyManager`, and the TEE-signed OnchainOS swap — each one a clickable OKLink link. There's no V3 NFT mint — we pivoted to swap mode because `defi invest`'s permit flow reverts on X Layer (see SUBMISSION.md §Known Limitations). The skill-computed range becomes a directional trigger band instead: cross-above → sell, cross-below → buy. **And here's the key part…**"
+
+(Optional) click **Start Monitor** to kick off the 5-min/30-min/6h evaluation loop on the newly-deployed strategy. The button disables itself until a strategy exists, so you can't start a loop over nothing.
 
 ### 2:00 — 2:30 · The Decision Log (the killer feature)
 

@@ -62,6 +62,51 @@ export interface EvaluationLite {
   risk?: RiskSnapshot | null;
 }
 
+/**
+ * Rich health-probe shape returned by `GET /api/health`.
+ *
+ * Mirrors `AgentCoordinator.getHealthInfo()` 1:1 so judges can `curl`
+ * the endpoint, grep for `uniswapSkills`, and see both loaded Uniswap
+ * AI Skills (`liquidity-planner@0.2.0`, `swap-planner@0.1.0`) alongside
+ * the live OnchainOS Agentic Wallet address and the deployed audit
+ * contract addresses.
+ *
+ * Every sub-probe on the backend is independently try/caught so a
+ * partial outage (e.g. OnchainOS CLI not logged in) still returns
+ * 200 JSON with the rest of this shape — only the `onchainos.error`
+ * field and possibly a "degraded" `status` will flip.
+ */
+export interface HealthInfo {
+  status: "ok" | "degraded";
+  chain: string;
+  chainId: number;
+  executionMode?: "live" | "simulated" | "audit-only";
+  agentState?: AgentState;
+  contracts?: {
+    strategyManager: string | null;
+    decisionLogger: string | null;
+    followVaultFactory: string | null;
+  };
+  onchainos?: {
+    loggedIn: boolean;
+    accountId: string | null;
+    accountName: string | null;
+    loginType: string | null;
+    agenticWalletAddress: string | null;
+    supportedChains: Array<{ chainId: number; name: string }>;
+    skillsAvailable: string[];
+    error: string | null;
+  };
+  uniswapSkills?: Array<{
+    name: string;
+    version: string;
+    source: string;
+    loaded: boolean;
+  }>;
+  /** Present only on the degraded fallback path in `agent/src/index.ts`. */
+  error?: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${AGENT_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -75,7 +120,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ status: string; chain: string; chainId: number }>("/api/health"),
+  health: () => request<HealthInfo>("/api/health"),
   state: () => request<AgentState>("/api/state"),
   history: () => request<EvaluationLite[]>("/api/history"),
   latest: () => request<EvaluationLite | null>("/api/latest"),

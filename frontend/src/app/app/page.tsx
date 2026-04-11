@@ -5,13 +5,20 @@ import { StatusBar } from "@/components/StatusBar";
 import { ThreeBrainPanel } from "@/components/ThreeBrainPanel";
 import { LPRangeChart } from "@/components/LPRangeChart";
 import { IntentInput } from "@/components/IntentInput";
+import { DeployControls } from "@/components/DeployControls";
 import { AgentChat } from "@/components/AgentChat";
 import { DecisionLog } from "@/components/DecisionLog";
 import { useState } from "react";
 import { UserIntent } from "@/lib/api";
+import { useAgentState } from "@/lib/hooks";
 
 export default function AppDashboardPage() {
   const [intent, setIntent] = useState<UserIntent | null>(null);
+  // Live agent state is used by DeployControls to decide whether Start/Stop
+  // Monitor should be active and which strategyId to target. Other dashboard
+  // components (StatusBar / ThreeBrainPanel / DecisionLog) subscribe to the
+  // same state via their own useAgentState() calls.
+  const { state } = useAgentState();
 
   return (
     <div className="min-h-screen">
@@ -33,6 +40,7 @@ export default function AppDashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <IntentInput onIntent={setIntent} />
+            <DeployControls intent={intent} state={state} />
             <ThreeBrainPanel />
             <LPRangeChart />
           </div>

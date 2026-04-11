@@ -15,10 +15,84 @@ Built for **OKX Build X AI Hackathon — Season 2**, X Layer Arena track.
 | **Chain** | X Layer mainnet (`196`) / testnet (`1952`) |
 | **Core audit contracts** | `StrategyManager` v2 + `DecisionLogger` + `FollowVaultFactory` |
 | **AI engine** | Three-brain decision system (Market · Pool · Risk) |
-| **Planning skills** | Uniswap AI Skills (`liquidity-planner` + `swap-planner`) |
+| **Planning skills** | Uniswap AI Skills — [`liquidity-planner@0.2.0`](https://github.com/Uniswap/uniswap-ai/tree/main/liquidity-planner) (pair classification + range widths + fee tier map, ported verbatim in `UniswapSkillsAdapter`) + [`swap-planner@0.1.0`](https://github.com/Uniswap/uniswap-ai/tree/main/swap-planner) (slippage ladder + price impact + minOut + optional split-swap, invoked on every rebalance via `planRebalanceSwap()`) |
 | **DEX execution** | OnchainOS Agentic Wallet + `onchainos swap execute` (TEE-signed) |
 | **Audit trail** | Every DEPLOY / REBALANCE / COMPOUND / HOLD logged on-chain with reasoning + confidence |
 | **Copy-trading** | `FollowVault` per-strategy ERC20 vault, agent earns 10 % perf fee |
+
+---
+
+## Team
+
+- **Solo developer — X Layer Builder.** End-to-end design, Solidity contracts, TypeScript agent backend, Next.js frontend, OnchainOS CLI integration, Uniswap AI Skills porting, mainnet deployment and on-chain activity.
+- Built independently for OKX Build X Hackathon Season 2, X Layer Arena track.
+
+---
+
+## Deployments
+
+All three audit / registry contracts are **deployed and live on both X Layer mainnet (chain 196) and X Layer testnet (chain 1952)**. Because the audit signer's nonce sequence matches on both chains (same deployer key, same `CREATE` order, nonces 0/1/2), the testnet and mainnet contract addresses are bit-identical — a nice side effect of a fully deterministic deploy.
+
+### X Layer Mainnet (chain 196)
+
+| Contract | Address | Deploy nonce | Explorer |
+|---|---|---|---|
+| `DecisionLogger` | `0x5989f764bC20072e6554860547CfEC474877892C` | 0 | [OKLink](https://www.oklink.com/xlayer/address/0x5989f764bC20072e6554860547CfEC474877892C) |
+| `StrategyManager` v2 | `0x2180fA2e3F89E314941b23B7acC0e60513766712` | 1 | [OKLink](https://www.oklink.com/xlayer/address/0x2180fA2e3F89E314941b23B7acC0e60513766712) |
+| `FollowVaultFactory` | `0x9203C9d95115652b5799ab9e9A640DDEB0879F85` | 2 | [OKLink](https://www.oklink.com/xlayer/address/0x9203C9d95115652b5799ab9e9A640DDEB0879F85) |
+
+Full mainnet deployment artifact: `deployments/196.json`.
+
+### X Layer Testnet (chain 1952)
+
+| Contract | Address | Explorer |
+|---|---|---|
+| `DecisionLogger` | `0x5989f764bC20072e6554860547CfEC474877892C` | [OKLink Testnet](https://www.oklink.com/xlayer-test/address/0x5989f764bC20072e6554860547CfEC474877892C) |
+| `StrategyManager` v2 | `0x2180fA2e3F89E314941b23B7acC0e60513766712` | [OKLink Testnet](https://www.oklink.com/xlayer-test/address/0x2180fA2e3F89E314941b23B7acC0e60513766712) |
+| `FollowVaultFactory` | `0x9203C9d95115652b5799ab9e9A640DDEB0879F85` | [OKLink Testnet](https://www.oklink.com/xlayer-test/address/0x9203C9d95115652b5799ab9e9A640DDEB0879F85) |
+
+### Live strategy on mainnet
+
+| | |
+|---|---|
+| **Strategy ID** | `0` |
+| **Pool** | USDT / OKB 0.3 % — `0x63d62734847E55A266FCa4219A9aD0a02D5F6e02` |
+| **Risk profile** | MODERATE |
+| **Initial deploy tx** | [`0xfd5e948d…f3b57ec`](https://www.oklink.com/xlayer/tx/0xfd5e948d77e4b76eb00cdf5c33d13ae404f3d423d57e06c288da152b4f3b57ec) |
+| **OnchainOS swap anchor** | [`0xf7df266e…2de`](https://www.oklink.com/xlayer/tx/0xf7df266e9586cbfc62a122e5fad69ca111bb267083762ca14e28abc1f6d612de) wrapping swap [`0x63a2d242…861`](https://www.oklink.com/xlayer/tx/0x63a2d242da000a2544d9f6f18628a046826efc7b9f5e932928cf15125666a861) |
+
+Full Proof-of-Work tx table — including all six verified OnchainOS-signed swaps — is in `SUBMISSION.md` § "Mainnet on-chain activity".
+
+---
+
+## Agents & Roles
+
+YieldAgent is architected as **two cooperating on-chain identities**, physically separated by construction so that no single key can both reason *and* sign DEX transactions. Any one-agent "AI trader" where the same key does planning and execution cannot give this guarantee.
+
+| Agent | On-chain address | What it signs | What it CAN'T do | Role |
+|---|---|---|---|---|
+| **OnchainOS Agentic Wallet** (TEE signer) | `0x6ab27b82890bc85cd996f518173487ece9811d61` ([OKLink](https://www.oklink.com/xlayer/address/0x6ab27b82890bc85cd996f518173487ece9811d61)) | Every DEX tx on X Layer — `onchainos swap execute`, token approvals, all rebalance / deploy / emergency-exit swaps | Cannot write to `StrategyManager` / `DecisionLogger` — it has no agent authorization on those contracts | **Execution identity.** Assigned by OnchainOS on first `wallet login`, account id `04c9d299-9e85-4c20-98c5-8f1f2a4bba36`. ERC-4337 smart account, EntryPoint v0.7 `0x000000007172…`. This is the wallet the Most Active On-Chain Agent prize judges should point their activity tracking at. |
+| **Audit / Registry signer** | `0x2E2FC9d6daf5044F53412eb49dF5e82a9cFB3838` ([OKLink](https://www.oklink.com/xlayer/address/0x2E2FC9d6daf5044F53412eb49dF5e82a9cFB3838)) | `StrategyManager.deployStrategy`, `recordExecution`, `logHold`, `DecisionLogger.logDecision` — anchors AI reasoning + OnchainOS tx hashes on-chain | Cannot call OnchainOS CLI, cannot sign any DEX tx — `ExecutionEngine.ts` contains zero DEX-calling code. Physically prevented from faking OnchainOS activity: it can only anchor a tx hash that already exists in OnchainOS's own signed history, because `recordExecution` is only called after an OnchainOS broadcast returns a real hash. | **Audit identity.** Plain EVM EOA held by the agent process. Registered as an authorized agent on `StrategyManager.setAgent(0x2E2FC9d6…, true)` and `DecisionLogger.setAuthorized(StrategyManager, true)`. |
+
+**Why this matters for the judging rubric.** The two-agent split is the *construct-level* anti-gaming guarantee for the Most Active On-Chain Agent prize: a judge can cross-reference `StrategyManager.getExecutions(strategyId)[i].txHash` against the OnchainOS Agentic Wallet's own on-chain activity — the hashes must match 1:1, because the audit signer has no way to fabricate one. See `agent/src/adapters/OnchainOSAdapter.ts` (the only file in the repo that spawns `onchainos`) and `agent/src/engines/ExecutionEngine.ts` (the only file that writes to `StrategyManager`) — neither imports the other's signing capability.
+
+---
+
+## X Layer Ecosystem Positioning
+
+**YieldAgent is the reference implementation of an on-chain AI liquidity strategist for X Layer**, and is purpose-built around three X Layer-native capabilities:
+
+1. **Gas-free high-frequency monitoring loop.** Concentrated-liquidity management is gas-intensive by design — `slot0` reads, IL math, tick re-anchoring, rebalance swaps, compound harvests, HOLD heartbeats. On Ethereum L1 a 5-minute monitoring tick × multiple positions would cost hundreds of dollars per agent per month. On X Layer, the same loop is *economically free*, so YieldAgent can run `evaluationIntervalMs = 5 min` / `fullEvalIntervalMs = 30 min` / `compoundIntervalMs = 6 h` without the cadence being a cost problem. The monitor loop cadence is the product — and it is viable *only* on X Layer.
+
+2. **Deep integration with OKX's OnchainOS on X Layer.** OnchainOS's Agentic Wallet is the **only** DEX-signing path in the entire codebase. The agent does not hold a hot key that can bypass OnchainOS; `ExecutionEngine` is constructed without DEX capabilities. Every `swap execute` goes through OnchainOS's TEE, is quoted via the OKX DEX aggregator, and is bundled through EntryPoint v0.7 ERC-4337 on X Layer. This is also the anti-gaming rule for the Most Active On-Chain Agent prize — but here it is enforced *structurally*, not by policy.
+
+3. **On-chain AI audit trail anchored on X Layer.** Every decision the agent makes — DEPLOY / REBALANCE / COMPOUND / HOLD / EMERGENCY_EXIT — is recorded on X Layer with its reasoning chain and confidence score via `DecisionLogger.logDecision(...)`, and every off-chain OnchainOS execution is anchored back to X Layer via `StrategyManager.recordExecution(...)`. Judges and copy-trading followers can reconstruct the agent's thinking at every X Layer block height by scanning a single contract address. This is the first AI agent on X Layer where the HOLD decisions — "the agent looked at the market and chose *not* to trade" — are also provable on-chain, not just the trades.
+
+**Role in the X Layer ecosystem.** YieldAgent is designed to be the foundation layer for an **AI-alpha leaderboard on X Layer**: `FollowVaultFactory` can spawn an unlimited number of per-strategy copy-trading vaults, each one ERC20-based, each one pegged to one `StrategyManager` strategy, each one paying 10 % performance fee to the agent on profit. Successful agents become economically self-sustaining, losing agents naturally bleed followers, and the `DecisionLogger` history is the verifiable track record. The same `StrategyManager` + `DecisionLogger` contracts can host any AI-managed concentrated-LP strategy — YieldAgent is simply the first one deployed.
+
+**Why X Layer specifically, not another L2.** Two hard reasons:
+- OnchainOS + Agentic Wallet + TEE signing is natively supported on X Layer (chain 196) via OKX's own infrastructure. Porting this to another L2 would require a different execution layer entirely — the whole anti-gaming story assumes OnchainOS.
+- X Layer's gas model makes the decision-logging overhead (one on-chain write per AI decision, including HOLD) free. On an L2 with meaningful calldata cost, you would have to batch or drop HOLD logs — which breaks the audit-trail invariant.
 
 ---
 
@@ -121,6 +195,9 @@ yield-agent/
 │       │   ├── ThreeBrainPanel.tsx
 │       │   ├── LPRangeChart.tsx
 │       │   ├── IntentInput.tsx
+│       │   ├── DeployControls.tsx           # Deploy / Start-Monitor /
+│       │   │                                #   Stop-Monitor buttons with
+│       │   │                                #   mainnet confirm dialog
 │       │   ├── AgentChat.tsx
 │       │   └── DecisionLog.tsx
 │       └── lib/
@@ -280,10 +357,10 @@ So "one swap in = position opened" and "one swap out = position closed" — the 
 | Judging axis | How YieldAgent satisfies it |
 |---|---|
 | **OnchainOS in the core path (Most Active On-Chain Agent)** | 100 % of DEX execution flows through `onchainos swap execute`, signed inside the Agentic Wallet TEE. `ExecutionEngine` is *only* an audit sink — it cannot sign. Grep `agent/src/adapters/OnchainOSAdapter.ts:swap` to verify every tx hash originates from an OnchainOS `spawn()`. |
-| **Uniswap AI Skills in the core path (Best Uniswap AI Skills Integration)** | `PoolBrain.recommendedRanges` is implemented in `UniswapSkillsAdapter.ts` — it reads the installed `liquidity-planner@0.2.0` skill file, hits the same DexScreener endpoints, uses the same tick-spacing table, and applies the same range-recommendation heuristics. Every range the agent picks is citable back to the skill version. |
+| **Uniswap AI Skills in the core path (Best Uniswap AI Skills Integration)** | **Two Uniswap AI Skills are live-loaded and cited at runtime:** (1) **`liquidity-planner@0.2.0`** drives `PoolBrain.recommendedRanges` — same DexScreener endpoints, same tick-spacing table, same range-recommendation heuristics as the upstream skill, 1:1 ported in `UniswapSkillsAdapter.computeRangeCandidates()`. (2) **`swap-planner@0.1.0`** is wired into `AgentCoordinator.rebalanceViaOnchainOS` via `UniswapSkillsAdapter.planRebalanceSwap()` — every rebalance broadcast flows through the planner, which applies the per-pair slippage ladder (stable 0.1 % / correlated 0.3 % / major 0.5 % / volatile 1.0 %), the price-impact k-factor table (deep 1.0 / moderate 1.5 / thin 2.5 / very_thin 4.0), the 1.5×-impact slippage boost with a 0.05 % floor, and the optional split-swap plan for trades >0.5 % of pool TVL. Both skills are surfaced at runtime via `/api/health` (`uniswapSkills[]` array) so judges can grep the endpoint and verify both are loaded in the live process. |
 | **X Layer specifically required** | 5-min monitoring loop × multiple positions × users = thousands of small txns. Only X Layer's gas-free concentrated-LP txs make this viable economically. |
 | **Genuine AI agent UX** | Three on-chain analytics brains, GPT-4o-mini intent parser, GPT-4o-mini reasoning composer, real-time chat that explains *why* each decision was made. Every reasoning string is on-chain and can be queried by anyone. |
-| **End-to-end working system** | Solidity contracts + Hardhat deploy + Node agent + Next.js frontend + WebSocket live updates + OnchainOS CLI wiring. Can be run on a single laptop after `cp .env.example .env` and `onchainos wallet login --force`. |
+| **End-to-end working system** | Solidity contracts + Hardhat deploy + Node agent + Next.js frontend + WebSocket live updates + OnchainOS CLI wiring. Dashboard wires `IntentInput` → `DeployControls` (Deploy Strategy + Start/Stop Monitor buttons with mainnet-confirm dialog) → `ThreeBrainPanel` + `LPRangeChart` + `DecisionLog`, so a judge can reproduce the full intent→deploy→monitor loop from the browser. Can be run on a single laptop after `cp .env.example .env` and `onchainos wallet login --force`. |
 
 ---
 

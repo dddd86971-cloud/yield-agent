@@ -118,17 +118,26 @@ wss.on("connection", (ws) => {
 // REST API
 // ============================================================================
 
-app.get("/api/health", (_req: Request, res: Response) => {
-  res.json({
-    status: "ok",
-    chain: "X Layer",
-    chainId: config.chainId,
-    contracts: {
-      strategyManager: config.strategyManager,
-      decisionLogger: config.decisionLogger,
-      followVaultFactory: config.followVaultFactory,
-    },
-  });
+app.get("/api/health", async (_req: Request, res: Response) => {
+  try {
+    const health = await coordinator.getHealthInfo();
+    res.json(health);
+  } catch (err: any) {
+    // Fall back to the original minimal shape if the rich probe fails, so
+    // the endpoint is still usable for liveness checks.
+    console.error("[/api/health] rich probe failed:", err?.message ?? err);
+    res.json({
+      status: "degraded",
+      chain: "X Layer",
+      chainId: config.chainId,
+      error: err?.message ?? String(err),
+      contracts: {
+        strategyManager: config.strategyManager,
+        decisionLogger: config.decisionLogger,
+        followVaultFactory: config.followVaultFactory,
+      },
+    });
+  }
 });
 
 app.get("/api/state", (_req: Request, res: Response) => {
