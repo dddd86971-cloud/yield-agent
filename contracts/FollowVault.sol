@@ -57,19 +57,27 @@ contract FollowVault is ERC20, ReentrancyGuard {
 
     // ============ Follow (Deposit) ============
 
-    /// @notice Follow a strategy by depositing USDC
-    /// @param amount Amount of USDC to deposit
+    /// @notice Follow a strategy by depositing `depositToken`
+    /// @dev Share price is computed from the **pre-transfer** total assets.
+    /// Reading totalAssets() after the transferFrom would make the new
+    /// deposit count toward its own denominator and dilute the new
+    /// follower's share (effectively transferring value to existing
+    /// holders even when no strategy profit was realised). The snapshot
+    /// below avoids that dilution so consecutive follows with no PnL in
+    /// between always mint shares at a flat 1:1 price.
+    /// @param amount Amount of `depositToken` to deposit
     function follow(uint256 amount) external nonReentrant {
         require(acceptingDeposits, "Vault closed");
         require(amount > 0, "Zero amount");
 
+        uint256 assetsBefore = totalAssets();
         depositToken.safeTransferFrom(msg.sender, address(this), amount);
 
         uint256 shares;
         if (totalSupply() == 0) {
             shares = amount;
         } else {
-            shares = (amount * totalSupply()) / totalAssets();
+            shares = (amount * totalSupply()) / assetsBefore;
         }
 
         _mint(msg.sender, shares);

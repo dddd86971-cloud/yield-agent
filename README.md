@@ -19,6 +19,8 @@ Built for **OKX Build X AI Hackathon — Season 2**, X Layer Arena track.
 | **DEX execution** | OnchainOS Agentic Wallet + `onchainos swap execute` (TEE-signed) |
 | **Audit trail** | Every DEPLOY / REBALANCE / COMPOUND / HOLD logged on-chain with reasoning + confidence |
 | **Copy-trading** | `FollowVault` per-strategy ERC20 vault, agent earns 10 % perf fee |
+| **Test coverage** | 68 passing [hardhat unit tests](test/) across `DecisionLogger`, `StrategyManager`, `FollowVault` — every write path of the audit layer + FollowVault share math is mechanically enforced. Run `npm test`. |
+| **Mainnet proof** | 6 verified `onchainos swap execute` txs on chain 196, signed by the Agentic Wallet TEE (`0x6ab27b82…`). Full table in [`SUBMISSION.md`](SUBMISSION.md) § "Mainnet on-chain activity". |
 
 ---
 
@@ -100,7 +102,7 @@ YieldAgent is architected as **two cooperating on-chain identities**, physically
 
 Most "AI + DeFi" projects are a chatbot wrapper around a Swap UI. YieldAgent is different:
 
-1. **Honest-by-construction.** Every HOLD is recorded with its confidence and its reasoning. Every rebalance cites the market + pool + risk analysis that justified it. `DecisionLogger.logDecision(...)` is called *for every action*. A copy-trading follower isn't just trusting an API — they can scan `DecisionLogger.getDecisionHistory(strategyId)` and see the entire thought process.
+1. **Honest-by-construction.** Every HOLD is recorded with its confidence and its reasoning. Every rebalance cites the market + pool + risk analysis that justified it. `DecisionLogger.logDecision(...)` is called *for every action*. A copy-trading follower isn't just trusting an API — they can scan `DecisionLogger.getDecisionHistory(strategyId)` and see the entire thought process. The 68-test hardhat suite (`test/DecisionLogger.test.ts` + `test/StrategyManager.test.ts` + `test/FollowVault.test.ts`) mechanically enforces this: every write path of the audit layer — DEPLOY / REBALANCE / COMPOUND / EMERGENCY_EXIT / HOLD — ships green or `npm test` fails.
 2. **100% of DEX execution flows through OnchainOS.** No shortcuts, no direct RPC signing. Every `onchainos swap execute` is signed inside OnchainOS's TEE and rate-tracked by the OnchainOS API — which is exactly the anti-gaming rule for the Most Active On-Chain Agent prize. ([see "Why swap execute, not defi invest"](#why-swap-execute-not-defi-invest).)
 3. **Planning is built on Uniswap AI Skills.** Range math, fee-tier selection, and rebalance swap plans all come from `liquidity-planner` and `swap-planner` (Uniswap's official AI skill library). Instead of reinventing tick math, YieldAgent cites the skill version and applies its methodology.
 4. **It has to live on X Layer.** Concentrated-LP management is gas-intensive: rebalancing, compounding, multi-position deployment. X Layer's gas-free txs are what make a 5-minute monitoring loop economically viable.
@@ -153,11 +155,21 @@ yield-agent/
 ├── contracts/
 │   ├── interfaces/IYieldProtocol.sol     # Shared types and events
 │   ├── libraries/TickMath.sol             # Tick rounding helpers
+│   ├── test/MockERC20.sol                 # Test-only mock ERC20 for hardhat
 │   ├── DecisionLogger.sol                 # On-chain AI decision history
 │   ├── StrategyManager.sol                # Core LP management contract
 │   └── FollowVault.sol                    # ERC20 copy-trading vaults
 ├── scripts/
 │   └── deploy.ts                          # Hardhat deployment to X Layer
+├── test/
+│   ├── DecisionLogger.test.ts             # 23 hardhat tests — access
+│   │                                      #   control, validation reverts,
+│   │                                      #   agent stats, history views
+│   ├── StrategyManager.test.ts            # 25 hardhat tests — deploy/
+│   │                                      #   rebalance/hold/compound/exit
+│   │                                      #   glue with DecisionLogger
+│   └── FollowVault.test.ts                # 20 hardhat tests — factory,
+│                                          #   share-math, perf fee, views
 ├── agent/
 │   ├── package.json
 │   └── src/
@@ -320,6 +332,29 @@ npm run dev
 # → http://localhost:3000
 ```
 
+### 6. (Optional but recommended) run the hardhat test suite
+
+```bash
+npm test
+# → 68 passing in ~1 s
+```
+
+The suite lives under `test/` and covers every write path of the three audit
+contracts:
+
+- `test/DecisionLogger.test.ts` — 23 cases: access control, validation
+  reverts, agent stats accounting, history + latest views.
+- `test/StrategyManager.test.ts` — 25 cases: constructor wiring,
+  `deployStrategy` validation, `rebalance` / `logHold` / `compoundFees` /
+  `emergencyExit` integration with `DecisionLogger`, `recordExecution` glue.
+- `test/FollowVault.test.ts` — 20 cases: factory access control, share-math
+  dilution invariant, performance fee on profit, `previewFollow` +
+  `previewUnfollow` views.
+
+A green `npm test` is the forcing function for every claim in
+`SUBMISSION.md` about on-chain audit behavior — if any of those tests
+regress, the submission's core invariant is broken.
+
 ---
 
 ## How a strategy lifecycle works
@@ -361,6 +396,7 @@ So "one swap in = position opened" and "one swap out = position closed" — the 
 | **X Layer specifically required** | 5-min monitoring loop × multiple positions × users = thousands of small txns. Only X Layer's gas-free concentrated-LP txs make this viable economically. |
 | **Genuine AI agent UX** | Three on-chain analytics brains, GPT-4o-mini intent parser, GPT-4o-mini reasoning composer, real-time chat that explains *why* each decision was made. Every reasoning string is on-chain and can be queried by anyone. |
 | **End-to-end working system** | Solidity contracts + Hardhat deploy + Node agent + Next.js frontend + WebSocket live updates + OnchainOS CLI wiring. Dashboard wires `IntentInput` → `DeployControls` (Deploy Strategy + Start/Stop Monitor buttons with mainnet-confirm dialog) → `ThreeBrainPanel` + `LPRangeChart` + `DecisionLog`, so a judge can reproduce the full intent→deploy→monitor loop from the browser. Can be run on a single laptop after `cp .env.example .env` and `onchainos wallet login --force`. |
+| **Mechanical verification** | 68-test hardhat suite (`test/DecisionLogger.test.ts` + `test/StrategyManager.test.ts` + `test/FollowVault.test.ts`) enforces every audit-layer invariant the submission relies on, including the unauthorized-caller revert paths for `StrategyManager` / `DecisionLogger`, the confidence-range validation on every `logDecision`, and the FollowVault share-math dilution fix (no new follower can ever be "taxed" by the current follower set). Run `npm test` to see it in ~1 s — if anything regresses, `SUBMISSION.md`'s honest-by-construction claims are mechanically impossible to hold. |
 
 ---
 
