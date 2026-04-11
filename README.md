@@ -14,7 +14,7 @@ Three forcing functions that set YieldAgent apart from every other AI + DeFi sub
 
 2. **The audit layer is mechanically enforced by a 68-test hardhat suite.** `npm test` from the repo root runs every write path of `DecisionLogger` + `StrategyManager` + `FollowVault` in ~800 ms. The suite caught a share-math dilution bug in `FollowVault.follow()` — reading `totalAssets()` *after* the `safeTransferFrom` let the new deposit count toward its own denominator and silently taxed the new follower. We fixed it, wrote the failing test first to lock in the fix, confirmed the mainnet factory had zero exposed vault instances, and documented the full story honestly in [`SUBMISSION.md` § Known Limitations #6](SUBMISSION.md) plus a dry-runnable redeploy script at [`scripts/redeploy-follow-vault-factory.ts`](scripts/redeploy-follow-vault-factory.ts). Nothing is papered over.
 
-3. **The two-signer split is an anti-gaming guarantee by construction, not by policy.** The TEE Agentic Wallet [`0x6ab27b82…`](https://www.oklink.com/xlayer/address/0x6ab27b82890bc85cd996f518173487ece9811d61) signs every DEX tx and has zero write permission on the audit contracts. The audit EOA [`0x2E2FC9d6…`](https://www.oklink.com/xlayer/address/0x2E2FC9d6daf5044F53412eb49dF5e82a9cFB3838) writes to `StrategyManager` / `DecisionLogger` and has zero DEX-calling code: [`agent/src/engines/ExecutionEngine.ts`](agent/src/engines/ExecutionEngine.ts) never spawns `onchainos` and [`agent/src/adapters/OnchainOSAdapter.ts`](agent/src/adapters/OnchainOSAdapter.ts) never imports an audit contract. A judge who cross-references `StrategyManager.getExecutions(0)[i].txHash` against the Agentic Wallet's OKLink history must get a 1:1 match by construction — there is no code path to fabricate one.
+3. **The two-signer split is an anti-gaming guarantee by construction, not by policy.** The TEE Agentic Wallet [`0x6ab27b82…`](https://www.oklink.com/xlayer/address/0x6ab27b82890bc85cd996f518173487ece9811d61) signs every DEX tx and has zero write permission on the audit contracts. The audit EOA [`0x2E2FC9d6…`](https://www.oklink.com/xlayer/address/0x2E2FC9d6daf5044F53412eb49dF5e82a9cFB3838) writes to `StrategyManager` / `DecisionLogger` and has zero DEX-calling code: [`agent/src/engines/ExecutionEngine.ts`](agent/src/engines/ExecutionEngine.ts) never spawns `onchainos` and [`agent/src/adapters/OnchainOSAdapter.ts`](agent/src/adapters/OnchainOSAdapter.ts) never imports an audit contract. A judge who calls `StrategyManager.getExecutions(1)[0].txHash` on chain 196 right now will get back [`0x8204ad49…e512f3`](https://www.oklink.com/xlayer/tx/0x8204ad49a1f27ae3412644c2b62a2f20fd7d79d9445d9dd8a99343eb85e512f3) — a TEE-signed swap that lives in the Agentic Wallet's OKLink history. The 1:1 cross-reference holds by construction; there is no code path that could fabricate one.
 
 ---
 
@@ -30,7 +30,7 @@ Three forcing functions that set YieldAgent apart from every other AI + DeFi sub
 | **Audit trail** | Every DEPLOY / REBALANCE / COMPOUND / HOLD logged on-chain with reasoning + confidence |
 | **Copy-trading** | `FollowVault` per-strategy ERC20 vault, agent earns 10 % perf fee |
 | **Test coverage** | 68 passing [hardhat unit tests](test/) across `DecisionLogger`, `StrategyManager`, `FollowVault` — every write path of the audit layer + FollowVault share math is mechanically enforced. Run `npm test`. |
-| **Mainnet proof** | 6 verified `onchainos swap execute` txs on chain 196, signed by the Agentic Wallet TEE (`0x6ab27b82…`). Full table in [`SUBMISSION.md`](SUBMISSION.md) § "Mainnet on-chain activity". |
+| **Mainnet proof** | 7 verified `onchainos swap execute` txs on chain 196, signed by the Agentic Wallet TEE (`0x6ab27b82…`), plus 2 live `/api/deploy` runs (strategy 0 and strategy 1) with full audit-row → TEE-swap → audit-anchor sequences anchored end-to-end. Full table in [`SUBMISSION.md`](SUBMISSION.md) § "Mainnet on-chain activity". |
 
 ---
 
@@ -63,17 +63,19 @@ Full mainnet deployment artifact: `deployments/196.json`.
 | `StrategyManager` v2 | `0x2180fA2e3F89E314941b23B7acC0e60513766712` | [OKLink Testnet](https://www.oklink.com/xlayer-test/address/0x2180fA2e3F89E314941b23B7acC0e60513766712) |
 | `FollowVaultFactory` | `0x9203C9d95115652b5799ab9e9A640DDEB0879F85` | [OKLink Testnet](https://www.oklink.com/xlayer-test/address/0x9203C9d95115652b5799ab9e9A640DDEB0879F85) |
 
-### Live strategy on mainnet
+### Live strategies on mainnet
 
-| | |
-|---|---|
-| **Strategy ID** | `0` |
-| **Pool** | USDT / OKB 0.3 % — `0x63d62734847E55A266FCa4219A9aD0a02D5F6e02` |
-| **Risk profile** | MODERATE |
-| **Initial deploy tx** | [`0xfd5e948d…f3b57ec`](https://www.oklink.com/xlayer/tx/0xfd5e948d77e4b76eb00cdf5c33d13ae404f3d423d57e06c288da152b4f3b57ec) |
-| **OnchainOS swap anchor** | [`0xf7df266e…2de`](https://www.oklink.com/xlayer/tx/0xf7df266e9586cbfc62a122e5fad69ca111bb267083762ca14e28abc1f6d612de) wrapping swap [`0x63a2d242…861`](https://www.oklink.com/xlayer/tx/0x63a2d242da000a2544d9f6f18628a046826efc7b9f5e932928cf15125666a861) |
+| | Strategy 0 (post-v2-deploy seed) | Strategy 1 (judging-window evidence) |
+|---|---|---|
+| **Pool** | USDT / OKB 0.3 % — `0x63d62734847E55A266FCa4219A9aD0a02D5F6e02` | same |
+| **Risk profile** | MODERATE | MODERATE |
+| **Principal** | 3 USDT | 2 USDT |
+| **Audit deploy tx** | [`0xfd5e948d…f3b57ec`](https://www.oklink.com/xlayer/tx/0xfd5e948d77e4b76eb00cdf5c33d13ae404f3d423d57e06c288da152b4f3b57ec) | [`0x7c283d19…2c29c5`](https://www.oklink.com/xlayer/tx/0x7c283d19bc2b97f1b7c3c09484b415f4074e4a3d0fabc7f376698bfe182c29c5) |
+| **OnchainOS TEE swap** | [`0x63a2d242…861`](https://www.oklink.com/xlayer/tx/0x63a2d242da000a2544d9f6f18628a046826efc7b9f5e932928cf15125666a861) (OKB → USDT, 0.01 OKB) | [`0x8204ad49…e512f3`](https://www.oklink.com/xlayer/tx/0x8204ad49a1f27ae3412644c2b62a2f20fd7d79d9445d9dd8a99343eb85e512f3) (USDT → WOKB, 2 USDT) |
+| **Audit anchor (recordExecution)** | [`0xf7df266e…2de`](https://www.oklink.com/xlayer/tx/0xf7df266e9586cbfc62a122e5fad69ca111bb267083762ca14e28abc1f6d612de) | [`0x9275d445…4ff06`](https://www.oklink.com/xlayer/tx/0x9275d4457f3fc0c90d3a5734cf2358d573dbc56a04cfa8212f7cd82d7324ff06) |
+| **Verifiable read** | `StrategyManager.getExecutions(0)` | `StrategyManager.getExecutions(1)` returns `[{actionType:0, txHash:0x8204ad49…}]` |
 
-Full Proof-of-Work tx table — including all six verified OnchainOS-signed swaps — is in `SUBMISSION.md` § "Mainnet on-chain activity".
+Full Proof-of-Work tx table — including all seven verified OnchainOS-signed swaps and both deploy sequences — is in `SUBMISSION.md` § "Mainnet on-chain activity".
 
 ---
 
