@@ -1,4 +1,5 @@
 import { ethers } from "hardhat";
+import type { Log, LogDescription } from "ethers";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -74,15 +75,15 @@ async function main() {
   if (!rcpt1) throw new Error("deployStrategy receipt is null");
 
   // Extract strategyId from StrategyDeployed event
-  const parsedLogs = rcpt1.logs
-    .map((log) => {
-      try {
-        return sm.interface.parseLog(log);
-      } catch {
-        return null;
-      }
-    })
-    .filter((l): l is NonNullable<typeof l> => l !== null);
+  const parsedLogs: LogDescription[] = [];
+  for (const log of rcpt1.logs) {
+    try {
+      const parsed = sm.interface.parseLog(log as Log);
+      if (parsed) parsedLogs.push(parsed);
+    } catch {
+      // non-matching log, skip
+    }
+  }
 
   const deployedEvent = parsedLogs.find((l) => l.name === "StrategyDeployed");
   if (!deployedEvent) throw new Error("StrategyDeployed event not found");

@@ -1,0 +1,27 @@
+# Make git diff + GitHub "Files changed" views less noisy for lockfiles
+# and other machine-generated artifacts. Judges reviewing the hackathon
+# PR diff shouldn't need to scroll through thousands of lines of pinned
+# transitive deps — the semantic diff lives in source files.
+
+package-lock.json           linguist-generated=true -diff
+agent/package-lock.json     linguist-generated=true -diff
+frontend/package-lock.json  linguist-generated=true -diff
+
+# Hardhat-generated artifacts (still .gitignore'd, but defensive in case
+# someone force-adds them)
+artifacts/**                linguist-generated=true -diff
+cache/**                    linguist-generated=true -diff
+typechain-types/**          linguist-generated=true -diff
+
+# Deployment receipts — these ARE committed (audit trail), but they're
+# machine-generated so collapse them in GitHub's diff view too.
+deployments/*.json          linguist-generated=true
+
+# Normalize line endings across Windows/mac/linux
+* text=auto eol=lf
+*.sh   text eol=lf
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.sol  text eol=lf
+*.md   text eol=lf
+*.json text eol=lf

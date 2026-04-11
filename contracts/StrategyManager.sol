@@ -151,11 +151,13 @@ contract StrategyManager is ReentrancyGuard {
 
     /// @notice Register a new LP strategy on X Layer
     /// @dev
-    /// This does NOT mint any Uniswap position. Token custody and the actual
-    /// LP NFT stay with the OnchainOS Agentic Wallet. This call is purely an
-    /// on-chain audit record: "agent X deployed strategy Y with thesis Z".
-    /// The matching on-chain execution (via `onchainos defi invest`) is
-    /// recorded separately through `recordExecution()`.
+    /// This does NOT mint any Uniswap position. Token custody and any
+    /// LP position state stays with the OnchainOS Agentic Wallet. This
+    /// call is purely an on-chain audit record: "agent X deployed
+    /// strategy Y with thesis Z". The matching off-chain execution —
+    /// `onchainos swap execute` in swap mode, or `onchainos defi invest`
+    /// in the future V3-reentry path — is recorded separately via
+    /// `recordExecution()` after the CLI returns a broadcast tx hash.
     /// @param pool Pool identifier (can be ZeroAddress if off-chain reference)
     /// @param token0 Token0 of the strategy
     /// @param token1 Token1 of the strategy
@@ -222,10 +224,12 @@ contract StrategyManager is ReentrancyGuard {
     // ============ Rebalance ============
 
     /// @notice Record a rebalance decision for a strategy
-    /// @dev On-chain execution happens through `onchainos defi withdraw` +
-    /// `defi invest`, not through this contract. This call just records the
-    /// new target range and reasoning for the audit trail. Call
-    /// `recordExecution()` afterwards with the OnchainOS tx hash.
+    /// @dev Off-chain execution happens through OnchainOS (currently
+    /// `swap execute` in the shipped swap-mode path, historically
+    /// planned as `defi withdraw` + `defi invest`), not through this
+    /// contract. This call just records the new target range and
+    /// reasoning for the audit trail. Call `recordExecution()`
+    /// afterwards with the OnchainOS broadcast tx hash.
     function rebalance(
         uint256 strategyId,
         IYieldProtocol.PositionParams[] calldata newPositions,
@@ -275,8 +279,14 @@ contract StrategyManager is ReentrancyGuard {
     // ============ Compound ============
 
     /// @notice Record a compound (fee-collect + reinvest) decision
-    /// @dev Actual fee collection happens via `onchainos defi collect`. Call
-    /// `recordExecution()` afterwards.
+    /// @dev Actual fee harvest happens off-chain through OnchainOS —
+    /// `onchainos swap execute` in the shipped swap-mode path, or
+    /// `onchainos defi collect --reward-type V3_FEE` in the future
+    /// V3-reentry path. The agent only calls this entry point when a
+    /// real harvest tx hash is about to be anchored via
+    /// `recordExecution()`; a periodic heartbeat with no harvest uses
+    /// `logHold()` instead, to keep the audit trail honest about
+    /// whether any fees were actually collected.
     function compoundFees(uint256 strategyId, string calldata reasoning, uint8 confidence)
         external
         onlyAgent
@@ -304,7 +314,10 @@ contract StrategyManager is ReentrancyGuard {
     // ============ Emergency Exit ============
 
     /// @notice Mark a strategy as exited
-    /// @dev Actual position withdrawal happens via `onchainos defi withdraw`.
+    /// @dev Actual position unwind happens off-chain through
+    /// OnchainOS — `onchainos swap execute` (non-stable → stable) in
+    /// swap mode, or `onchainos defi withdraw` in the future V3-reentry
+    /// path.
     function emergencyExit(uint256 strategyId, string calldata reasoning)
         external
         onlyAgent

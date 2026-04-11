@@ -3,6 +3,19 @@
 **Target:** OKX Build X Hackathon Season 2 — X Layer mainnet
 **Hackathon requirement:** "Call at least one OnchainOS module OR Uniswap AI Skill"
 
+> **v2.1 addendum (2026-04-11):** the OnchainOS `defi invest` path for
+> Uniswap V3 LP mint is not reachable from an ERC-4337 Agentic Wallet in
+> CLI v2.2.7 — `defi search` finds the pool but `defi invest` never
+> bundles the source-token approvals as a userOp, so the downstream
+> NonfungiblePositionManager call reverts at `estimateGas`. The system
+> pivoted to **swap-execute mode**: the Agentic Wallet routes rebalance /
+> harvest actions through `onchainos swap execute`, which DOES handle
+> ERC-4337 bundling correctly for native-source swaps. All references to
+> `defi invest` below describe the original target; where the shipped code
+> diverges, the text is marked **[swap-mode]**. See README §
+> "How it actually broadcasts" and SUBMISSION § "Known limitations" for
+> the full failure log.
+
 ## Why v2
 
 v1 embedded Uniswap V3 execution logic directly in `StrategyManager.sol`
@@ -28,10 +41,17 @@ actually ships on X Layer and qualifies for two special-prize categories:
                              │
                              ▼
 ┌────────────────────────────────────────────────────────────┐
-│  2. EXECUTION — OnchainOS defi-invest CLI (on-chain)       │
-│     onchainos defi invest --tick-lower N --tick-upper M    │
-│     onchainos defi withdraw / collect / positions          │
-│     Signed and sent via OnchainOS Agentic Wallet           │
+│  2. EXECUTION — OnchainOS CLI (on-chain)                   │
+│     Original target: `onchainos defi invest/withdraw       │
+│       /collect/positions` → V3 NFT mint + fee harvest.     │
+│     [swap-mode] Shipped path: `onchainos swap execute`     │
+│       --from-token/--to-token/--amount --wallet $AGENT     │
+│       drives DEPLOY, REBALANCE, EMERGENCY_EXIT and the     │
+│       optional harvest hook. All userOps are bundled by    │
+│       the OnchainOS Agentic Wallet (ERC-4337, EntryPoint   │
+│       v0.7) so the source EOA is carried in calldata, not  │
+│       as `msg.sender`, and the on-chain audit row records  │
+│       the bundler tx hash.                                 │
 │     → all transactions satisfy "Most Active Agent" anti-   │
 │       gaming rule (must go through OnchainOS API)          │
 └────────────────────────────────────────────────────────────┘
@@ -48,7 +68,8 @@ actually ships on X Layer and qualifies for two special-prize categories:
 │       └─ Every DEPLOY / REBALANCE / COMPOUND / HOLD / EXIT │
 │          decision recorded with full reasoning chain       │
 │     FollowVault + Factory (unchanged, 226 lines)           │
-│       └─ USDC vault for copy-trading followers             │
+│       └─ ERC20 vault for copy-trading followers (USDT      │
+│          default on X Layer mainnet — per-pool quote)      │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -65,7 +86,7 @@ actually ships on X Layer and qualifies for two special-prize categories:
   - **Remove:** `TickMath` import
   - **Remove:** `tx.origin` usage
   - **Remove:** `deposit` / `withdraw` / `userShares` / `totalShares` (moved to FollowVault which already had its own accounting)
-  - **Remove:** `compoundFees` fee-collection logic (agent collects off-chain via `onchainos defi collect`)
+  - **Repurpose:** `compoundFees` — the solidity entry point stays (it still writes a COMPOUND DecisionLogger row), but the agent only calls it when a real harvest tx was broadcast by OnchainOS. In **[swap-mode]** the shipped code currently has no harvest path and instead calls `logHold` on the periodic heartbeat so the audit trail does not accumulate fake COMPOUND rows. See `AgentCoordinator.runCompound()`.
   - **Keep:** strategy registry, agent auth, decision logging, event signatures
   - **Add:** `Execution` struct + `recordExecution()` to log OnchainOS tx hashes and externalIds
   - **Add:** `strategy.agent = msg.sender`, `strategy.owner = msg.sender` (agent owns its own strategies; users interact through FollowVault)
@@ -106,14 +127,14 @@ constructor(address _decisionLogger)
 
 `agent/src/engines/ExecutionEngine.ts`:
 - Update `STRATEGY_MANAGER_ABI` to match v2 methods
-- Add `recordExecution` helper that is called after each `onchainos defi invest/withdraw/collect`
+- Add `recordExecution` helper that is called after each successful OnchainOS broadcast (historically `defi invest/withdraw/collect`, currently `swap execute`)
 - Remove direct pool queries (use OnchainOS CLI's own pool data or a chain RPC read fallback)
 
-New wrapper `agent/src/services/OnchainOSExecutor.ts` (to be added later):
-- `async invest({ chainId, productId, amountUsd, tickLower, tickUpper })` → spawns `onchainos defi invest` and parses JSON output
-- `async withdraw({ positionId })`
-- `async collect({ positionId })`
-- `async positions()`
+Shipped wrapper `agent/src/services/OnchainOSAdapter.ts`:
+- **[shipped]** `swap({ fromToken, toToken, wallet, chain, readableAmount, slippage })` → spawns `onchainos swap execute` and parses the `swapTxHash` / `fromAmount` / `toAmount` fields. Used by DEPLOY (native-source, stable-target), REBALANCE, and EMERGENCY_EXIT.
+- **[shipped]** `getBalance(walletAddress, chain)`, `getTokens(chain)`, `getAddresses()` — read-only helpers.
+- **[deferred]** `invest({ chainId, productId, amountUsd, tickLower, tickUpper })` — blocked on ERC-4337 approve-bundling bug, stub kept in code so V3-reentry slots in cleanly once the upstream CLI is fixed.
+- **[deferred]** `withdraw({ positionId })`, `collect({ positionId })`, `positions()` — same blocker.
 
 For the first deployment we can leave the agent's `deployStrategy` etc.
 unwired — the priority is contracts on-chain first.

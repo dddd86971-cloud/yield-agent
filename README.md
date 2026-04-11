@@ -202,6 +202,39 @@ npm start
 # → ws://localhost:3001/ws
 ```
 
+### 4b. Smoke-test the deployment (recommended before frontend)
+
+Once the backend is running, three read-only curls confirm the audit-layer
+wiring is live on X Layer without touching OnchainOS or spending any OKB:
+
+```bash
+# 1. Health + chainId
+curl -s http://localhost:3001/api/health | jq
+
+# 2. Current agent state (executionMode, strategyId, evaluationCount)
+curl -s http://localhost:3001/api/state | jq
+
+# 3. Latest evaluation (null until monitor has run once)
+curl -s http://localhost:3001/api/latest | jq
+```
+
+All three should return 200 JSON. `executionMode` will be one of `live` /
+`simulated` / `audit-only` depending on whether your OnchainOS CLI is
+logged in and whether `ONCHAINOS_SIMULATE=true` is set.
+
+If you want to exercise the audit contracts without any OnchainOS
+broadcast, run the anchor script in dry-run mode against the mainnet
+contracts — it reads `getExecutions(0)` and prints what it *would* write:
+
+```bash
+ANCHOR_DRY_RUN=1 \
+STRATEGY_MANAGER_ADDRESS=0x2180fA2e3F89E314941b23B7acC0e60513766712 \
+npx hardhat run scripts/anchor-swap-evidence.ts --network xlayer
+```
+
+A non-dry run of the same script is what produced row 6 of the Proof of
+Work table in `SUBMISSION.md`.
+
 ### 5. Run the frontend
 
 ```bash
@@ -214,17 +247,17 @@ npm run dev
 
 ## How a strategy lifecycle works
 
-1. **User intent (text):** "Stable yield on OKB/USDC with $5000, max 5 % IL."
+1. **User intent (text):** "Stable yield on OKB/USDT with $5000, max 5 % IL." (USDT is the dominant stable on X Layer — `defi search` finds 4 V3 pools for USDT vs 0 for USDC.)
 2. **`IntentParser`** turns it into structured `UserIntent` (principal, risk profile, target APR, max IL).
 3. **User clicks Deploy.** `MarketBrain` + `PoolBrain` analyse the pool in parallel. `PoolBrain` asks `UniswapSkillsAdapter` for the range — the adapter pulls live pool data from DexScreener (same endpoint as `liquidity-planner`), snaps ticks to the fee-tier's spacing, and returns 3 range candidates using the official skill's recommendation heuristics (stable pair: ±0.5–1 %, major pair: ±10–20 %, volatile: ±30–50 %).
 4. **`OnchainOSAdapter.swap(...)`** spawns `onchainos swap execute --chain-index 196 --from-token <stable> --to-token <volatile> --amount <principal> --slippage 0.01`. OnchainOS resolves the route through the OKX DEX aggregator, signs inside its TEE, and returns the broadcast tx hash — **every signing operation happens inside OnchainOS's TEE, so the tx is attributable to the Agentic Wallet and counts toward the Most Active On-Chain Agent leaderboard.**
 5. **`ExecutionEngine.recordExecution(strategyId, txHash, externalId)`** writes the OnchainOS tx hash into `StrategyManager` on X Layer for the audit trail.
 6. **`DecisionLogger.logDecision(DEPLOY, ..., confidence, reasoning)`** records the deploy with its full reasoning chain.
-7. **Monitoring loop** (every 5 min):
-   - quick edge-proximity check; if past threshold ⇒ run full eval immediately
-   - every 30 min: full three-brain re-analysis
-   - every 6 h: idle-balance sweep — if the Agentic Wallet holds volatile-token dust from a rebalance, `OnchainOSAdapter.swap(...)` rounds it back into the quote token and the sweep is recorded as a `COMPOUND` audit row
-8. **Each evaluation** ends with one of `HOLD / REBALANCE / COMPOUND / EMERGENCY_EXIT`. Every non-HOLD action goes through OnchainOS first, then gets recorded on-chain. HOLD decisions skip OnchainOS (no DEX tx) but are still written to `DecisionLogger.logHold(...)` so the audit trail is continuous.
+7. **Monitoring loop** (two-tier):
+   - every 5 min (`evaluationIntervalMs`): quick edge-proximity check; if past threshold ⇒ run full eval immediately
+   - every 30 min (`fullEvalIntervalMs`): full three-brain re-analysis
+   - every 6 h (`compoundIntervalMs`): periodic harvest heartbeat — if a real harvest tx broadcasts, it's anchored as a `COMPOUND` audit row + `recordExecution`; if not (the default in swap mode, which holds no V3 position), the heartbeat writes a `HOLD` row via `logHold` so the audit trail stays honest about what actually happened.
+8. **Each evaluation** ends with one of `HOLD / REBALANCE / COMPOUND / EMERGENCY_EXIT`. Every non-HOLD action that produces a real DEX tx goes through OnchainOS first, then gets recorded on-chain. HOLD decisions skip OnchainOS (no DEX tx) but are still written to `DecisionLogger.logHold(...)` so the audit trail is continuous.
 9. **A successful agent** can have a follower vault created via `FollowVaultFactory.createVault(...)`. Followers deposit USDT; their share of vault assets mirrors the agent's positions. Agent collects 10 % of profit on withdrawal.
 
 ### Why `swap execute`, not `defi invest`

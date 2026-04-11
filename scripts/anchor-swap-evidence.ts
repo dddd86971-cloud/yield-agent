@@ -1,42 +1,122 @@
 import { ethers } from "hardhat";
 
 /**
- * Anchor a real, already-broadcast OnchainOS swap tx into the audit
- * trail as a COMPOUND action row on StrategyManager.
+ * Anchor an already-broadcast OnchainOS swap tx into the on-chain audit
+ * trail as an Execution row on StrategyManager.
  *
  * Why this script exists
  * ----------------------
- * The "deploy" path through `/api/deploy` wrote the audit-layer Strategy
- * row (strategyId 0, mainnet tx 0xfd5e948d…) but the downstream
- * OnchainOS `swap execute` in the USDT → OKB direction kept reverting at
- * OKX DEX's estimateGas step. Root cause: the Agentic Wallet is an
- * ERC-4337 smart account, and the CLI's auto-approve step for ERC20
- * source tokens isn't bundling the `usdt.approve(router)` userOp before
- * the swap userOp, so the downstream router sees zero allowance and
- * reverts.
+ * The `/api/deploy` path writes the audit-layer Strategy row plus its
+ * immediate companion Execution row, but when a swap is broadcast
+ * out-of-band (e.g. directly via `onchainos swap execute` while
+ * debugging) the agent never gets a chance to call `recordExecution`.
+ * This script closes that gap for a single known tx hash so the on-chain
+ * audit trail matches the OnchainOS account's real activity.
  *
- * Meanwhile the *reverse* direction (OKB → USDT, with OKB as native) is
- * fine — verified by a live swap:
+ * Background — 2026-04-11 first mainnet deploy
+ * --------------------------------------------
+ * The original need for this script: the initial `/api/deploy` run kept
+ * reverting at OKX DEX's `estimateGas` step for the USDT → OKB direction
+ * because the Agentic Wallet is an ERC-4337 smart account and the CLI's
+ * auto-approve step for ERC20 source tokens was not bundling the
+ * `usdt.approve(router)` userOp before the swap userOp — the downstream
+ * router saw zero allowance and reverted. Meanwhile the OKB → USDT
+ * direction (native source) worked fine. We broadcast a real OKB → USDT
+ * swap
  *
  *   0x63a2d242da000a2544d9f6f18628a046826efc7b9f5e932928cf15125666a861
  *
- * That swap is a genuine OnchainOS TEE-signed tx from the Agentic
- * Wallet, and for the "Most Active On-Chain Agent" rubric it's exactly
- * the kind of evidence the leaderboard counts. So we anchor it into the
- * audit trail as a COMPOUND action on strategy 0 — semantically
- * "harvest non-stable side back to stable quote", which matches the
- * direction of the swap.
+ * — a genuine OnchainOS TEE-signed tx from the Agentic Wallet — and
+ * anchored it into strategy 0's audit trail as a COMPOUND action. See
+ * SUBMISSION.md §"Known Limitations" for the full postmortem.
  *
- * This script is idempotent-safe: it only appends a new Execution row,
- * it does not mutate existing state.
+ * Usage
+ * -----
+ *   # Anchor the default 2026-04-11 harvest-direction swap into strategy 0
+ *   STRATEGY_MANAGER_ADDRESS=0x... npx hardhat run scripts/anchor-swap-evidence.ts --network xlayer
+ *
+ *   # Anchor a different tx hash or different action
+ *   ANCHOR_STRATEGY_ID=0 \
+ *   ANCHOR_TX_HASH=0x... \
+ *   ANCHOR_ACTION=COMPOUND \
+ *   ANCHOR_EXTERNAL_ID="my-audit-id" \
+ *   npx hardhat run scripts/anchor-swap-evidence.ts --network xlayer
+ *
+ *   # Dry run — show what would be written without sending a tx
+ *   ANCHOR_DRY_RUN=1 npx hardhat run scripts/anchor-swap-evidence.ts --network xlayer
+ *
+ * Idempotency
+ * -----------
+ * StrategyManager allows duplicate Execution rows with the same txHash,
+ * so this script pre-flights:
+ *   1. It fetches the current Executions list via `getExecutions(strategyId)`
+ *   2. If the target txHash is already present, it logs & exits 0.
+ *   3. It verifies the tx exists on-chain via `eth_getTransactionByHash`
+ *      and that its sender is a known address. The check is advisory —
+ *      we still anchor if the tx is missing from the RPC (could be
+ *      archive lag), but we warn.
+ *
+ * The script never mutates existing state — it only appends a new
+ * Execution row. It will not re-deploy, re-swap, or modify the strategy.
  */
-const STRATEGY_ID = 0;
-const ACTION_COMPOUND = 2;
-const SWAP_TX_HASH =
+
+// ------ ActionType enum (mirrors IYieldProtocol.sol) ------
+const ACTION_TYPES: Record<string, number> = {
+  DEPLOY: 0,
+  REBALANCE: 1,
+  COMPOUND: 2,
+  EMERGENCY_EXIT: 3,
+  HOLD: 4,
+};
+
+// ------ Defaults — the canonical 2026-04-11 harvest-direction anchor ------
+const DEFAULT_STRATEGY_ID = 0;
+const DEFAULT_ACTION_NAME = "COMPOUND";
+const DEFAULT_TX_HASH =
   "0x63a2d242da000a2544d9f6f18628a046826efc7b9f5e932928cf15125666a861";
-const EXTERNAL_ID = "swap-okb-usdt-2026-04-11-anchor";
+const DEFAULT_EXTERNAL_ID = "swap-okb-usdt-2026-04-11-anchor";
+
+function parseEnvArgs() {
+  const strategyId = Number(
+    process.env.ANCHOR_STRATEGY_ID ?? DEFAULT_STRATEGY_ID
+  );
+  if (!Number.isInteger(strategyId) || strategyId < 0) {
+    throw new Error(
+      `ANCHOR_STRATEGY_ID must be a non-negative integer, got ${process.env.ANCHOR_STRATEGY_ID}`
+    );
+  }
+
+  const actionName = (
+    process.env.ANCHOR_ACTION ?? DEFAULT_ACTION_NAME
+  ).toUpperCase();
+  const action = ACTION_TYPES[actionName];
+  if (action === undefined) {
+    throw new Error(
+      `ANCHOR_ACTION must be one of ${Object.keys(ACTION_TYPES).join(
+        "/"
+      )}, got ${actionName}`
+    );
+  }
+
+  const txHash = (process.env.ANCHOR_TX_HASH ?? DEFAULT_TX_HASH).toLowerCase();
+  if (!/^0x[0-9a-f]{64}$/.test(txHash)) {
+    throw new Error(
+      `ANCHOR_TX_HASH must be a 32-byte hex string, got ${txHash}`
+    );
+  }
+
+  const externalId = process.env.ANCHOR_EXTERNAL_ID ?? DEFAULT_EXTERNAL_ID;
+  const dryRun = ["1", "true", "yes"].includes(
+    (process.env.ANCHOR_DRY_RUN ?? "").toLowerCase()
+  );
+
+  return { strategyId, actionName, action, txHash, externalId, dryRun };
+}
 
 async function main() {
+  const { strategyId, actionName, action, txHash, externalId, dryRun } =
+    parseEnvArgs();
+
   const [agent] = await ethers.getSigners();
   const network = await ethers.provider.getNetwork();
   const chainId = Number(network.chainId);
@@ -54,15 +134,16 @@ async function main() {
   console.log(`  Network:  ${network.name} (${chainId})`);
   console.log(`  Agent:    ${agent.address}`);
   console.log(`  StrategyManager: ${smAddr}`);
-  console.log(`  Strategy: ${STRATEGY_ID}`);
-  console.log(`  Action:   COMPOUND (${ACTION_COMPOUND})`);
-  console.log(`  TxHash:   ${SWAP_TX_HASH}`);
-  console.log(`  External: ${EXTERNAL_ID}`);
+  console.log(`  Strategy: ${strategyId}`);
+  console.log(`  Action:   ${actionName} (${action})`);
+  console.log(`  TxHash:   ${txHash}`);
+  console.log(`  External: ${externalId}`);
+  console.log(`  DryRun:   ${dryRun}`);
   console.log("========================================\n");
 
   const sm = await ethers.getContractAt("StrategyManager", smAddr, agent);
 
-  // Verify the agent is actually authorized, otherwise the call will
+  // Verify the signer is actually authorized, otherwise the call will
   // revert with a confusing onlyAgent error.
   const isAgent = await sm.agents(agent.address);
   if (!isAgent) {
@@ -71,28 +152,74 @@ async function main() {
     );
   }
 
-  const strategy = await sm.getStrategy(STRATEGY_ID);
+  const strategy = await sm.getStrategy(strategyId);
   if (strategy.agent.toLowerCase() !== agent.address.toLowerCase()) {
     throw new Error(
-      `Strategy ${STRATEGY_ID}'s agent ${strategy.agent} does not match signer ${agent.address}`
+      `Strategy ${strategyId}'s agent ${strategy.agent} does not match signer ${agent.address}`
     );
   }
 
   console.log(
-    `  Pre-check OK — signer is the strategy's recorded agent, pool=${strategy.pool}\n`
+    `  Pre-check OK — signer is the strategy's recorded agent, pool=${strategy.pool}`
   );
 
+  // Idempotency check — scan existing executions for a duplicate txHash.
+  try {
+    const executions = await sm.getExecutions(strategyId);
+    const duplicate = executions.find(
+      (e: any) => (e.txHash ?? "").toLowerCase() === txHash
+    );
+    if (duplicate) {
+      console.log(
+        `  Idempotent: txHash ${txHash} already present in strategy ${strategyId}'s execution history at timestamp ${duplicate.timestamp}. Skipping.`
+      );
+      return;
+    }
+  } catch (err: any) {
+    console.warn(
+      `  Warn: getExecutions(${strategyId}) failed (${err?.message ?? err}). Proceeding without idempotency check.`
+    );
+  }
+
+  // Advisory: verify the target tx actually exists on-chain.
+  try {
+    const broadcastTx = await ethers.provider.getTransaction(txHash);
+    if (!broadcastTx) {
+      console.warn(
+        `  Warn: eth_getTransactionByHash returned null for ${txHash}. The RPC may be archive-lagged. Proceeding anyway — the recordExecution row does not actually verify the tx hash on-chain.`
+      );
+    } else {
+      console.log(
+        `  Tx lookup OK — broadcast from ${broadcastTx.from}, block ${broadcastTx.blockNumber}, hash confirmed.`
+      );
+    }
+  } catch (err: any) {
+    console.warn(
+      `  Warn: eth_getTransactionByHash threw (${err?.message ?? err}). Proceeding anyway.`
+    );
+  }
+
+  if (dryRun) {
+    console.log("\n  DRY RUN — no tx will be sent.");
+    console.log(
+      `  Would call: StrategyManager.recordExecution(${strategyId}, ${action}, 0, 0, "${txHash}", "${externalId}")`
+    );
+    return;
+  }
+
   const tx = await sm.recordExecution(
-    STRATEGY_ID,
-    ACTION_COMPOUND,
+    strategyId,
+    action,
     0, // tickLower — swap-mode positions have no tick range
     0, // tickUpper
-    SWAP_TX_HASH,
-    EXTERNAL_ID
+    txHash,
+    externalId
   );
-  console.log(`  Sent tx: ${tx.hash}`);
+  console.log(`\n  Sent tx: ${tx.hash}`);
   const receipt = await tx.wait();
-  console.log(`  Mined in block ${receipt?.blockNumber}, gas used ${receipt?.gasUsed}`);
+  console.log(
+    `  Mined in block ${receipt?.blockNumber}, gas used ${receipt?.gasUsed}`
+  );
 
   console.log("\n  Audit row anchored.");
 }

@@ -342,9 +342,10 @@ export class ExecutionEngine {
   }
 
   /**
-   * Record an OnchainOS execution (after `onchainos defi invest/withdraw/collect`
-   * returns a signed tx hash). This is the glue between off-chain execution
-   * and on-chain audit trail.
+   * Record an OnchainOS execution (after `onchainos swap execute` — or
+   * in the future `defi invest`/`withdraw`/`collect` — returns a signed
+   * tx hash). This is the glue between off-chain execution and the
+   * on-chain audit trail.
    */
   async recordExecution(params: RecordExecutionParams): Promise<string> {
     const tx = await this.strategyManager.recordExecution(

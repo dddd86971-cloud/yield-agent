@@ -2,15 +2,17 @@
  * YieldAgent v2 contract addresses per chain.
  *
  * These are populated by `scripts/deploy.ts` which writes to
- * `yield-agent/deployment.json` and `yield-agent/deployments/<chainId>.json`.
- * After a fresh deploy, update the corresponding block below with the new
- * addresses.
+ * `yield-agent/deployment.json` and `yield-agent/deployments/<chainId>.json`,
+ * and then synced into this file by `scripts/sync-frontend-addresses.ts`.
+ * After a fresh deploy, re-run the sync script rather than hand-editing.
  *
  * v2 NOTE: These three contracts are a slim audit/registry layer. All real
- * DEX execution happens off-chain via the OnchainOS `defi invest/withdraw/
- * collect` CLI, signed by the agent's Agentic Wallet. The contracts below
- * exist to anchor every AI decision and every OnchainOS tx hash on-chain
- * so judges and followers can verify the full reasoning chain.
+ * DEX execution happens off-chain via `onchainos swap execute`, signed
+ * inside the agent's Agentic Wallet TEE (ERC-4337, EntryPoint v0.7). The
+ * contracts below exist to anchor every AI decision and every OnchainOS
+ * swap tx hash on-chain so judges and followers can verify the full
+ * reasoning chain. See SUBMISSION.md §"Why swap, not V3 defi invest" for
+ * the pivot postmortem.
  */
 
 export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
@@ -28,10 +30,10 @@ export type SupportedChainId = 196 | 1952;
 export const CONTRACTS: Record<SupportedChainId, ContractSet> = {
   // X Layer Mainnet
   196: {
-    decisionLogger: ZERO_ADDRESS,
-    strategyManager: ZERO_ADDRESS,
-    followVaultFactory: ZERO_ADDRESS,
-    deployedAt: 0,
+    decisionLogger: "0x5989f764bC20072e6554860547CfEC474877892C" as `0x${string}`,
+    strategyManager: "0x2180fA2e3F89E314941b23B7acC0e60513766712" as `0x${string}`,
+    followVaultFactory: "0x9203C9d95115652b5799ab9e9A640DDEB0879F85" as `0x${string}`,
+    deployedAt: 57104843,
   },
   // X Layer Testnet
   1952: {
@@ -44,9 +46,18 @@ export const CONTRACTS: Record<SupportedChainId, ContractSet> = {
 
 export const DEFAULT_CHAIN_ID: SupportedChainId = 196;
 
-/** Token addresses on X Layer mainnet */
+/**
+ * Token addresses on X Layer mainnet.
+ *
+ * USDT is the dominant stablecoin on X Layer — `onchainos defi search`
+ * returns 4 V3 pools for USDT and 0 for USDC, so YieldAgent defaults to
+ * USDT as the stable quote side of every pair. USDC is kept for UI
+ * fallbacks on pools that happen to quote in USDC, but the agent will
+ * not deploy strategies against it.
+ */
 export const TOKENS = {
   WOKB: "0xe538905cf8410324e03a5a23c1c177a474d59b2b" as `0x${string}`,
+  USDT: "0x779ded0c9e1022225f8e0630b35a9b54be713736" as `0x${string}`,
   USDC: "0x74b7f16337b8972027f6196a17a631ac6de26d22" as `0x${string}`,
   WETH: "0x5a77f1443d16ee5461801882a092c8620b8c4d58" as `0x${string}`,
 } as const;

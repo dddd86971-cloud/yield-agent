@@ -31,7 +31,7 @@ This is the script to use when recording the hackathon demo video. Total runtime
 
 Type into the IntentInput:
 ```
-Conservative OKB/USDC LP with $5000, target 15% APR
+Conservative OKB/USDT LP with $5000, target 15% APR
 ```
 
 Click send.
@@ -39,6 +39,8 @@ Click send.
 > "GPT-4o-mini parses the request into a structured `UserIntent` — principal, risk profile, target APR, max IL tolerance. The intent is what I'd write on a napkin; the agent figures out the rest."
 
 (Show parsed intent card with principal $5000, risk conservative, target 5-12%)
+
+> "We default to USDT as the stable quote on X Layer because `defi search` finds 4 live V3 pools for USDT and zero for USDC — it's the dominant stable on this chain."
 
 ### 0:45 — 1:30 · The three brains
 
@@ -55,15 +57,15 @@ Scroll down to ThreeBrainPanel.
 **Risk Brain** (point at third card):
 > "Pure-math IL engine — concentrated liquidity formula, no oracles needed. Tracks position health, edge proximity, in-range status."
 
-### 1:30 — 2:00 · LP visualization + Deploy
+### 1:30 — 2:00 · Range-as-trigger-band visualization + Deploy
 
 Scroll to LPRangeChart.
 
-> "The position bar shows where we are in the range. Pulse means 'in range, earning fees'."
+> "The band shows the Uniswap-skill-computed range. Pulse means 'price is inside the band, HOLD'."
 
 (Click Deploy if not already deployed)
 
-> "On click, the agent calls `StrategyManager.deployStrategy` — mints three Uniswap V3 positions in a single transaction. **And here's the key part…**"
+> "On click, the agent writes two transactions in sequence. First, `StrategyManager.deployStrategy` — the on-chain audit row that records the three-brain thesis, tick bounds, and risk profile. Second, `OnchainOSAdapter.swap()` — an `onchainos swap execute` signed inside the Agentic Wallet TEE that swaps the stable principal into the volatile side. There's no V3 NFT mint — we pivoted to swap mode because `defi invest`'s permit flow reverts on X Layer (see SUBMISSION.md §Known Limitations). The skill-computed range becomes a directional trigger band instead: cross-above → sell, cross-below → buy. **And here's the key part…**"
 
 ### 2:00 — 2:30 · The Decision Log (the killer feature)
 
@@ -73,13 +75,13 @@ Scroll to DecisionLog.
 
 (Click the tx hash, show OKLink page in a tab)
 
-> "Five minutes from now, the agent will check again. If price drifts too close to a range edge, it'll rebalance — and that decision will also land here. If volatility spikes, you'll see an emergency exit. **You can audit the AI's history forever.**"
+> "Five minutes from now, the agent will check again. If price drifts outside the trigger band, it'll fire a swap through `onchainos swap execute` — and that decision will also land here, with the TEE-signed swap tx hash cross-referenced to the on-chain audit row. If volatility spikes, you'll see an emergency exit. **You can audit the AI's history forever.**"
 
 ### 2:30 — 2:55 · Copy-trading
 
 Click "Follow" in the header.
 
-> "Successful agents become followable. Each strategy can spin up a `FollowVault` — an ERC20 vault. Followers deposit USDC, the vault mirrors the agent's positions, and the agent earns 10 % of follower profit on withdrawal. It's a permissionless leaderboard of AI alpha on X Layer."
+> "Successful agents become followable. Each strategy can spin up a `FollowVault` — an ERC20 vault. Followers deposit USDT (the X Layer stable quote), the vault mirrors the agent's positions, and the agent earns 10 % of follower profit on withdrawal. It's a permissionless leaderboard of AI alpha on X Layer."
 
 (Show leaderboard with three demo agents)
 
@@ -101,8 +103,9 @@ Click "Follow" in the header.
 
 ## Key talking points to hit (in case you forget)
 
-1. **Onchain OS skill in the core path** — without the agent, no LP positions get minted. The "AI" is not a chatbot wrapper.
-2. **X Layer is required** — the 5-minute monitoring loop × multi-position rebalancing × copy-trading would be unaffordable on Ethereum L1.
-3. **Verifiable AI** — `DecisionLogger.logDecision(...)` is called for every action including HOLD. Anyone can scan the contract and replay the agent's history.
-4. **Three brains** — not one prompt, three deterministic analyses (market, pool, risk) + one composer.
-5. **End-to-end working** — Solidity contracts on X Layer mainnet, Node agent loop, Next.js dashboard with live WebSocket — `npm install` and run.
+1. **OnchainOS in the core path** — 100 % of DEX execution flows through `onchainos swap execute`, signed inside the Agentic Wallet TEE. The "AI" is not a chatbot wrapper and the local process cannot bypass OnchainOS by construction — grep `agent/src/adapters/` to verify.
+2. **X Layer is required** — the 5-minute monitoring loop × swap-based directional rebalancing × copy-trading fan-out would be unaffordable on Ethereum L1. X Layer's sub-cent gas is what makes a per-strategy heartbeat economically viable.
+3. **Verifiable AI** — `DecisionLogger.logDecision(...)` is called for every action including HOLD. Anyone can scan the contract and replay the agent's history; `StrategyManager.getExecutions(strategyId)` cross-references every OnchainOS swap tx hash.
+4. **Three brains** — not one prompt, three deterministic analyses (market, pool, risk) + one GPT-4o-mini composer. Range math is Uniswap's own `liquidity-planner@0.2.0` skill ported 1:1.
+5. **Honest pivot** — when `defi invest`'s permit flow didn't broadcast on X Layer, we pivoted to swap mode and documented the postmortem in `SUBMISSION.md` §Known Limitations rather than faking V3 NFT mints. The skill-computed ranges become directional trigger bands — the same methodology, an honest execution surface.
+6. **End-to-end working** — Solidity contracts on X Layer mainnet, Node agent loop, Next.js dashboard with live WebSocket — `npm install` and run. 6 verified mainnet swap txs in the Proof of Work table.
