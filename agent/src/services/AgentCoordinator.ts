@@ -20,6 +20,13 @@ import {
   SWAP_PLANNER_SKILL,
 } from "../adapters/UniswapSkillsAdapter";
 import { config } from "../config";
+import {
+  V3PositionManager,
+  getV3PositionManager,
+  MintResult,
+  RebalanceResult,
+  PositionDetail,
+} from "./V3PositionManager";
 import OpenAI from "openai";
 
 // Action codes matching StrategyManager.recordExecution(uint8 action, …)
@@ -71,6 +78,28 @@ export interface EvaluationResult {
   txHash?: string;
 }
 
+/** Structured chat response — frontend renders action-specific UI based on these fields. */
+export interface ChatResponse {
+  reply: string;
+  action?: "deploy" | "monitor_start" | "monitor_stop" | "analyze" | "adjust_risk";
+  data?: any;
+}
+
+/** SSE event emitted by handleChatStream for real-time progress. */
+export interface StreamEvent {
+  type: "status" | "chunk" | "brain" | "done" | "error";
+  content?: string;
+  action?: string;
+  data?: any;
+}
+
+/** Supported pools on X Layer mainnet. */
+const POOLS: Record<string, string> = {
+  "USDT/OKB": "0x63d62734847E55A266FCa4219A9aD0a02D5F6e02",
+  "WETH/USDT": "0xd4e12E274AEFC5F0b4abC1fB5D9581e4B8bE04da",
+};
+const DEFAULT_POOL = POOLS["USDT/OKB"];
+
 const REASONING_PROMPT = `You are YieldAgent's reasoning engine. Given the three-brain analysis results, generate a concise reasoning explanation for the action taken.
 
 Rules:
@@ -91,12 +120,16 @@ export class AgentCoordinator {
   private openai: OpenAI;
   private state: AgentState;
   private evaluationHistory: EvaluationResult[] = [];
+  private v3pm: V3PositionManager | null = null;
   private strategyContexts: Map<number, StrategyContext> = new Map();
+  /** Map from strategyId to V3 NFT tokenId for direct LP positions. */
+  private v3Positions: Map<number, number> = new Map();
   private monitorInterval: ReturnType<typeof setInterval> | null = null;
 
   // Event callbacks for frontend
   public onEvaluation?: (result: EvaluationResult) => void;
   public onStateChange?: (state: AgentState) => void;
+  public onAlert?: (alert: { type: string; message: string; severity: "info" | "warn" | "critical"; data?: any }) => void;
 
   constructor() {
     this.marketBrain = new MarketBrain();
@@ -123,6 +156,21 @@ export class AgentCoordinator {
     } else {
       console.log(
         `[AgentCoordinator] OnchainOS adapter is LIVE (chain: ${config.onchainos.defaultChain}, cliPath: ${config.onchainos.cliPath}).`
+      );
+    }
+
+    // V3 Position Manager — direct LP minting via NonfungiblePositionManager.
+    // Only available when PRIVATE_KEY is set. Falls back to OnchainOS swap
+    // mode when wallet is not configured.
+    try {
+      this.v3pm = getV3PositionManager();
+      console.log(
+        `[AgentCoordinator] V3PositionManager initialized (NPM=${config.uniswapV3.positionManager}). Direct LP minting ENABLED.`
+      );
+    } catch (err: any) {
+      this.v3pm = null;
+      console.warn(
+        `[AgentCoordinator] V3PositionManager not available: ${err?.message}. Falling back to swap-mode execution.`
       );
     }
 
@@ -381,7 +429,8 @@ export class AgentCoordinator {
    */
   async deployStrategy(
     poolAddress: string,
-    intent: UserIntent
+    intent: UserIntent,
+    onProgress?: (event: StreamEvent) => void,
   ): Promise<{
     strategyId: number;
     txHash: string;
@@ -395,11 +444,20 @@ export class AgentCoordinator {
     this.state.intent = intent;
     this.emitStateChange();
 
-    // Analyze pool (market + pool brain in parallel)
+    // Analyze pool (market + pool brain in parallel), emitting progress
     const [market, pool] = await Promise.all([
-      this.marketBrain.analyze(poolAddress),
-      this.poolBrain.analyze(poolAddress),
+      this.marketBrain.analyze(poolAddress).then((m) => {
+        onProgress?.({ type: "brain", data: { brain: "market", status: "done", summary: m.reasoning } });
+        return m;
+      }),
+      this.poolBrain.analyze(poolAddress).then((p) => {
+        onProgress?.({ type: "brain", data: { brain: "pool", status: "done", summary: `Fee APR: ${p.feeAPR}%` } });
+        return p;
+      }),
     ]);
+
+    onProgress?.({ type: "brain", data: { brain: "risk", status: "analyzing" } });
+    onProgress?.({ type: "status", content: "Deploying strategy on-chain..." });
 
     const riskProfileIdx = { conservative: 0, moderate: 1, aggressive: 2 }[intent.riskProfile];
 
@@ -428,57 +486,178 @@ export class AgentCoordinator {
     });
 
     this.state.strategyId = audit.strategyId;
+    onProgress?.({ type: "brain", data: { brain: "risk", status: "done", summary: "Audit record written" } });
 
-    // --- Step 2 + 3: OnchainOS deposit + on-chain anchor ----------------------
+    // --- Step 2 + 3: Real V3 LP mint → fallback to OnchainOS swap → audit-only
     let onchainTxHash: string | undefined;
     let investmentId: string | undefined;
     let executionMode: "live" | "simulated" | "audit-only" = "audit-only";
 
-    try {
-      const depositInfo = await this.depositViaOnchainOS(pool, intent);
-      onchainTxHash = depositInfo.txHash;
-      investmentId = depositInfo.investmentId;
-      executionMode = config.onchainos.simulate ? "simulated" : "live";
+    // --- Priority 1: V3 LP mint via OnchainOS TEE (Agentic Wallet) ----------
+    // This is the anti-gaming path: every tx signed inside TEE, attributable
+    // to OnchainOS. Requires Agentic Wallet to be configured and funded.
+    if (this.v3pm?.agenticWalletAddress) {
+      try {
+        onProgress?.({ type: "status", content: "Minting V3 LP via OnchainOS Agentic Wallet (TEE)..." });
+        const mainRange = pool.recommendedRanges[0];
 
-      // Cache per-strategy context for future rebalance/compound/exit.
-      const ctx: StrategyContext = {
-        investmentId,
-        poolAddress,
-        token0Symbol: pool.token0Symbol,
-        token1Symbol: pool.token1Symbol,
-        quoteTokenSymbol: depositInfo.quoteTokenSymbol,
-        chainName: config.onchainos.defaultChain,
-        nftTokenId: depositInfo.nftTokenId,
-      };
-      this.strategyContexts.set(audit.strategyId, ctx);
+        const teeResult = await this.v3pm.deployLPViaTEE(
+          poolAddress,
+          mainRange.tickLower,
+          mainRange.tickUpper,
+          intent.principal,
+          (msg) => onProgress?.({ type: "status", content: msg }),
+        );
 
-      // Try to resolve the freshly-minted V3 NFT tokenId. Best-effort —
-      // if the position query fails, rebalance/exit will fall back to
-      // audit-only until we can identify the NFT.
-      if (!ctx.nftTokenId) {
-        ctx.nftTokenId = await this.tryResolveNftTokenId(ctx).catch(() => undefined);
+        if (teeResult && teeResult.txHash) {
+          onchainTxHash = teeResult.txHash;
+          const tokenId = teeResult.tokenId;
+          investmentId = `v3-nft-${tokenId}`;
+          executionMode = "live";
+
+          if (tokenId > 0) this.v3Positions.set(audit.strategyId, tokenId);
+
+          const ctx: StrategyContext = {
+            investmentId,
+            poolAddress,
+            token0Symbol: pool.token0Symbol,
+            token1Symbol: pool.token1Symbol,
+            quoteTokenSymbol: this.pickQuoteTokenSymbol(pool),
+            chainName: config.onchainos.defaultChain,
+            nftTokenId: tokenId > 0 ? String(tokenId) : undefined,
+          };
+          this.strategyContexts.set(audit.strategyId, ctx);
+
+          await this.executor.recordExecution({
+            strategyId: audit.strategyId,
+            action: ACTION_DEPLOY,
+            tickLower: mainRange.tickLower,
+            tickUpper: mainRange.tickUpper,
+            txHash: onchainTxHash,
+            externalId: investmentId,
+          });
+
+          onProgress?.({
+            type: "status",
+            content: `V3 LP minted via OnchainOS TEE! NFT #${tokenId}, tx: ${onchainTxHash.slice(0, 18)}...`,
+          });
+
+          console.log(
+            `[AgentCoordinator] TEE V3 LP deployed for strategy ${audit.strategyId}: ` +
+            `tokenId=${tokenId}, tx=${onchainTxHash}`
+          );
+        } else {
+          console.warn("[AgentCoordinator] TEE V3 LP mint returned null — falling back to direct mint");
+        }
+      } catch (err: any) {
+        console.error(
+          `[AgentCoordinator] TEE V3 LP mint failed for strategy ${audit.strategyId}:`,
+          err?.message ?? err
+        );
+        onProgress?.({ type: "status", content: `TEE mint failed: ${err?.message}. Trying direct V3...` });
       }
+    }
 
-      // Anchor the real OnchainOS tx hash into the audit trail so users and
-      // followers can verify every deploy on-chain.
-      const mainRange = pool.recommendedRanges[0];
-      await this.executor.recordExecution({
-        strategyId: audit.strategyId,
-        action: ACTION_DEPLOY,
-        tickLower: mainRange.tickLower,
-        tickUpper: mainRange.tickUpper,
-        txHash: onchainTxHash,
-        externalId: investmentId,
-      });
-    } catch (err: any) {
-      console.error(
-        `[AgentCoordinator] OnchainOS deploy path failed for strategy ${audit.strategyId}:`,
-        err?.message ?? err
-      );
-      // The audit record is still valid — flip executionMode so the frontend
-      // can surface a "retry deposit" affordance instead of showing a fake
-      // tx hash.
-      executionMode = "audit-only";
+    // --- Priority 2: Direct V3 LP mint via PRIVATE_KEY -----------------------
+    if (!onchainTxHash && this.v3pm) {
+      try {
+        onProgress?.({ type: "status", content: "Minting V3 LP position (direct signing)..." });
+        const mainRange = pool.recommendedRanges[0];
+
+        const mintResult = await this.v3pm.deployLP(
+          poolAddress,
+          mainRange.tickLower,
+          mainRange.tickUpper,
+          intent.principal,
+          (msg) => onProgress?.({ type: "status", content: msg }),
+        );
+
+        if (mintResult && mintResult.tokenId > 0) {
+          onchainTxHash = mintResult.txHash;
+          investmentId = `v3-nft-${mintResult.tokenId}`;
+          executionMode = "live";
+
+          this.v3Positions.set(audit.strategyId, mintResult.tokenId);
+
+          const ctx: StrategyContext = {
+            investmentId,
+            poolAddress,
+            token0Symbol: pool.token0Symbol,
+            token1Symbol: pool.token1Symbol,
+            quoteTokenSymbol: this.pickQuoteTokenSymbol(pool),
+            chainName: config.onchainos.defaultChain,
+            nftTokenId: String(mintResult.tokenId),
+          };
+          this.strategyContexts.set(audit.strategyId, ctx);
+
+          await this.executor.recordExecution({
+            strategyId: audit.strategyId,
+            action: ACTION_DEPLOY,
+            tickLower: mainRange.tickLower,
+            tickUpper: mainRange.tickUpper,
+            txHash: onchainTxHash,
+            externalId: investmentId,
+          });
+
+          onProgress?.({
+            type: "status",
+            content: `V3 LP #${mintResult.tokenId} minted! tx: ${mintResult.txHash.slice(0, 18)}...`,
+          });
+
+          console.log(
+            `[AgentCoordinator] Direct V3 LP deployed for strategy ${audit.strategyId}: ` +
+            `tokenId=${mintResult.tokenId}, liquidity=${mintResult.liquidity}, tx=${mintResult.txHash}`
+          );
+        }
+      } catch (err: any) {
+        console.error(
+          `[AgentCoordinator] Direct V3 LP mint failed for strategy ${audit.strategyId}:`,
+          err?.message ?? err
+        );
+        onProgress?.({ type: "status", content: `V3 mint failed: ${err?.message}. Trying swap...` });
+      }
+    }
+
+    // --- Priority 2: OnchainOS swap-based deposit (if V3 mint didn't work) ---
+    if (!onchainTxHash) {
+      try {
+        const depositInfo = await this.depositViaOnchainOS(pool, intent);
+        onchainTxHash = depositInfo.txHash;
+        investmentId = depositInfo.investmentId;
+        executionMode = config.onchainos.simulate ? "simulated" : "live";
+
+        // Cache per-strategy context for future rebalance/compound/exit.
+        const ctx: StrategyContext = {
+          investmentId,
+          poolAddress,
+          token0Symbol: pool.token0Symbol,
+          token1Symbol: pool.token1Symbol,
+          quoteTokenSymbol: depositInfo.quoteTokenSymbol,
+          chainName: config.onchainos.defaultChain,
+          nftTokenId: depositInfo.nftTokenId,
+        };
+        this.strategyContexts.set(audit.strategyId, ctx);
+
+        if (!ctx.nftTokenId) {
+          ctx.nftTokenId = await this.tryResolveNftTokenId(ctx).catch(() => undefined);
+        }
+
+        const mainRange = pool.recommendedRanges[0];
+        await this.executor.recordExecution({
+          strategyId: audit.strategyId,
+          action: ACTION_DEPLOY,
+          tickLower: mainRange.tickLower,
+          tickUpper: mainRange.tickUpper,
+          txHash: onchainTxHash,
+          externalId: investmentId,
+        });
+      } catch (err: any) {
+        console.error(
+          `[AgentCoordinator] OnchainOS deploy path also failed for strategy ${audit.strategyId}:`,
+          err?.message ?? err
+        );
+        executionMode = "audit-only";
+      }
     }
 
     this.state.status = "monitoring";
@@ -560,53 +739,251 @@ export class AgentCoordinator {
   }
 
   /**
-   * Handle user chat message (adjustment requests)
+   * Handle user chat message — returns structured ChatResponse.
+   * Detects deploy / monitor / analyze commands and executes them,
+   * returning action metadata the frontend can render inline.
    */
-  async handleChat(message: string): Promise<string> {
+  async handleChat(message: string): Promise<ChatResponse> {
     const lower = message.toLowerCase();
 
-    // Quick commands
+    // --- Quick commands -------------------------------------------------------
+
     if (lower.includes("为什么") || lower.includes("why")) {
       const latest = this.getLatestEvaluation();
       if (latest) {
-        return `Last decision (${new Date(latest.timestamp).toLocaleTimeString()}): ${latest.action.toUpperCase()}\n\nReasoning: ${latest.reasoning}\n\nMarket: ${latest.market.reasoning}\nConfidence: ${latest.confidence}%`;
+        return {
+          reply: `Last decision (${new Date(latest.timestamp).toLocaleTimeString()}): ${latest.action.toUpperCase()}\n\nReasoning: ${latest.reasoning}\n\nMarket: ${latest.market.reasoning}\nConfidence: ${latest.confidence}%`,
+        };
       }
-      return "No decisions made yet. The agent is still analyzing the market.";
+      return { reply: "No decisions made yet. The agent is still analyzing the market." };
     }
 
     if (lower.includes("保守") || lower.includes("conservative")) {
       if (this.state.intent) {
         this.state.intent.riskProfile = "conservative";
-        return "Risk profile adjusted to CONSERVATIVE. Will widen ranges and reduce narrow position allocation on next rebalance.";
+        return {
+          reply: "Risk profile adjusted to CONSERVATIVE. Will widen ranges and reduce narrow position allocation on next rebalance.",
+          action: "adjust_risk",
+          data: { riskProfile: "conservative" },
+        };
       }
+      return { reply: "No active strategy to adjust. Deploy a strategy first." };
     }
 
     if (lower.includes("激进") || lower.includes("aggressive")) {
       if (this.state.intent) {
         this.state.intent.riskProfile = "aggressive";
-        return "Risk profile adjusted to AGGRESSIVE. Will narrow ranges for higher fee capture on next rebalance.";
+        return {
+          reply: "Risk profile adjusted to AGGRESSIVE. Will narrow ranges for higher fee capture on next rebalance.",
+          action: "adjust_risk",
+          data: { riskProfile: "aggressive" },
+        };
       }
+      return { reply: "No active strategy to adjust. Deploy a strategy first." };
     }
 
     if (lower.includes("status") || lower.includes("状态")) {
-      return this.getStatusReport();
+      return { reply: this.getStatusReport() };
     }
 
-    // General AI response
+    // --- Deploy command -------------------------------------------------------
+
+    if (this.isDeployCommand(lower)) {
+      try {
+        const intent = await this.intentParser.parse(message);
+        this.state.intent = intent;
+        const result = await this.deployStrategy(this.resolvePool(message), intent);
+        this.startMonitoring(result.strategyId);
+        return {
+          reply: `Strategy #${result.strategyId} deployed and monitoring started!\n\nExecution: ${result.executionMode}\nReasoning: ${result.reasoning}${result.onchainTxHash ? `\nTx: ${result.onchainTxHash}` : ""}`,
+          action: "deploy",
+          data: result,
+        };
+      } catch (err: any) {
+        return { reply: `Deploy failed: ${err.message}` };
+      }
+    }
+
+    // --- Monitor commands -----------------------------------------------------
+
+    if (lower.includes("start monitor") || lower.includes("开始监控")) {
+      try {
+        this.startMonitoring();
+        return {
+          reply: `Monitoring started for strategy #${this.state.strategyId}.`,
+          action: "monitor_start",
+          data: { strategyId: this.state.strategyId },
+        };
+      } catch (err: any) {
+        return { reply: `Cannot start monitoring: ${err.message}` };
+      }
+    }
+
+    if (lower.includes("stop monitor") || lower.includes("停止监控")) {
+      this.stopMonitoring();
+      return { reply: "Monitoring stopped.", action: "monitor_stop" };
+    }
+
+    // --- Analyze command ------------------------------------------------------
+
+    if (lower.includes("analyze") || lower.includes("分析")) {
+      try {
+        const result = await this.analyzeAndRecommend(this.resolvePool(message));
+        return {
+          reply: result.recommendation,
+          action: "analyze",
+          data: {
+            market: {
+              currentPrice: result.market.currentPrice,
+              priceChange1h: result.market.priceChange1h,
+              volatility: result.market.volatility,
+              marketState: result.market.marketState,
+            },
+            pool: {
+              token0Symbol: result.pool.token0Symbol,
+              token1Symbol: result.pool.token1Symbol,
+              feeAPR: result.pool.feeAPR,
+              tvl: result.pool.tvl,
+            },
+          },
+        };
+      } catch (err: any) {
+        return { reply: `Analysis failed: ${err.message}` };
+      }
+    }
+
+    // --- General AI response --------------------------------------------------
+
     const context = this.getLatestEvaluation();
     const response = await this.openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You are YieldAgent, an AI managing Uniswap V3 LP positions on X Layer. Current state: ${JSON.stringify(this.state)}. Latest analysis: ${JSON.stringify(context?.market || {})}. Answer the user's question concisely.`,
+          content: `You are YieldAgent, an autonomous AI managing Uniswap V3 LP positions on X Layer. You use a three-brain ensemble (Market Brain, Pool Brain, Risk Brain) to make decisions. Current state: ${JSON.stringify(this.state)}. Latest analysis: ${JSON.stringify(context?.market || {})}. Answer concisely. If the user wants to deploy, tell them to say "deploy [amount] USDT [conservative/moderate/aggressive]". Detect the user's language and respond in the same language (Chinese or English).`,
         },
         { role: "user", content: message },
       ],
       max_tokens: 300,
     });
 
-    return response.choices[0]?.message?.content || "I'm analyzing the situation...";
+    return { reply: response.choices[0]?.message?.content || "I'm analyzing the situation..." };
+  }
+
+  /**
+   * SSE streaming chat — emits brain progress events during deploy/analyze,
+   * and real OpenAI token-by-token streaming for general chat.
+   */
+  async handleChatStream(
+    message: string,
+    onEvent: (event: StreamEvent) => void,
+  ): Promise<void> {
+    const lower = message.toLowerCase();
+
+    // --- Deploy with brain progress -------------------------------------------
+    if (this.isDeployCommand(lower)) {
+      try {
+        onEvent({ type: "status", content: "Parsing your intent..." });
+        const intent = await this.intentParser.parse(message);
+        this.state.intent = intent;
+
+        onEvent({ type: "status", content: "Running three-brain analysis..." });
+        onEvent({ type: "brain", data: { brain: "market", status: "analyzing" } });
+        onEvent({ type: "brain", data: { brain: "pool", status: "analyzing" } });
+
+        const result = await this.deployStrategy(this.resolvePool(message), intent, (evt) => onEvent(evt));
+
+        onEvent({ type: "status", content: "Starting monitoring loop..." });
+        this.startMonitoring(result.strategyId);
+
+        onEvent({
+          type: "done",
+          action: "deploy",
+          content: `Strategy #${result.strategyId} deployed and monitoring started!\n\nExecution: ${result.executionMode}\nReasoning: ${result.reasoning}${result.onchainTxHash ? `\nTx: ${result.onchainTxHash}` : ""}`,
+          data: result,
+        });
+      } catch (err: any) {
+        onEvent({ type: "error", content: `Deploy failed: ${err.message}` });
+      }
+      return;
+    }
+
+    // --- Analyze with brain progress ------------------------------------------
+    if (lower.includes("analyze") || lower.includes("分析")) {
+      try {
+        onEvent({ type: "status", content: "Starting pool analysis..." });
+        onEvent({ type: "brain", data: { brain: "market", status: "analyzing" } });
+        onEvent({ type: "brain", data: { brain: "pool", status: "analyzing" } });
+
+        const result = await this.analyzeAndRecommend(this.resolvePool(message));
+
+        onEvent({ type: "brain", data: { brain: "market", status: "done" } });
+        onEvent({ type: "brain", data: { brain: "pool", status: "done" } });
+        onEvent({
+          type: "done",
+          action: "analyze",
+          content: result.recommendation,
+          data: {
+            market: { currentPrice: result.market.currentPrice, volatility: result.market.volatility, marketState: result.market.marketState },
+            pool: { token0Symbol: result.pool.token0Symbol, token1Symbol: result.pool.token1Symbol, feeAPR: result.pool.feeAPR, tvl: result.pool.tvl },
+          },
+        });
+      } catch (err: any) {
+        onEvent({ type: "error", content: `Analysis failed: ${err.message}` });
+      }
+      return;
+    }
+
+    // --- Quick commands (non-streaming) ----------------------------------------
+    const quick = await this.handleChat(message);
+    if (quick.action) {
+      // Already handled as a structured command
+      onEvent({ type: "done", action: quick.action, content: quick.reply, data: quick.data });
+      return;
+    }
+
+    // --- General chat: stream OpenAI tokens -----------------------------------
+    const context = this.getLatestEvaluation();
+    try {
+      const stream = await this.openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are YieldAgent, an autonomous AI managing Uniswap V3 LP positions on X Layer. You use a three-brain ensemble (Market Brain, Pool Brain, Risk Brain). Current state: ${JSON.stringify(this.state)}. Latest analysis: ${JSON.stringify(context?.market || {})}. Answer concisely. If the user wants to deploy, tell them to say "deploy [amount] USDT [conservative/moderate/aggressive]". Detect the user's language and respond in the same language (Chinese or English).`,
+          },
+          { role: "user", content: message },
+        ],
+        max_tokens: 300,
+        stream: true,
+      });
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content;
+        if (delta) {
+          onEvent({ type: "chunk", content: delta });
+        }
+      }
+      onEvent({ type: "done" });
+    } catch (err: any) {
+      onEvent({ type: "error", content: err.message });
+    }
+  }
+
+  /** Resolve pool address from user message — looks for pair keywords. */
+  private resolvePool(message: string): string {
+    const lower = message.toLowerCase();
+    if (lower.includes("weth") || lower.includes("eth/usdt") || lower.includes("eth pool")) {
+      return POOLS["WETH/USDT"];
+    }
+    return DEFAULT_POOL;
+  }
+
+  /** Detect deploy intent: message contains a number + deploy keyword. */
+  private isDeployCommand(lower: string): boolean {
+    const hasAmount = /\d+/.test(lower);
+    const hasKeyword = /deploy|invest|provide|liquidity|lp|部署|投入|提供流动性/.test(lower);
+    return hasAmount && hasKeyword;
   }
 
   // ============ Core Evaluation Logic ============
@@ -759,7 +1136,7 @@ export class AgentCoordinator {
           tickLower: range.tickLower,
           tickUpper: range.tickUpper,
           amount0: BigInt(0),
-          amount1: BigInt(0), // StrategyManager will use collected funds
+          amount1: BigInt(0),
         }));
 
         // Audit write first (declared new ranges with reasoning).
@@ -771,37 +1148,86 @@ export class AgentCoordinator {
         });
         this.state.status = "monitoring";
 
-        // Then perform the real withdraw + reinvest via OnchainOS. If either
-        // step throws, keep the audit row but log the failure.
-        const rebalanceInfo = await this.rebalanceViaOnchainOS(
-          this.state.strategyId,
-          pool,
-          pool.recommendedRanges[0]
-        ).catch((err) => {
-          console.error(
-            `[AgentCoordinator] OnchainOS rebalance failed:`,
-            err?.message ?? err
-          );
-          return null;
-        });
-        if (rebalanceInfo?.txHash) {
-          const mainRange = pool.recommendedRanges[0];
-          await this.executor
-            .recordExecution({
+        // --- Priority 1: Direct V3 rebalance if we have an NFT position ---
+        const nftTokenId = this.v3Positions.get(this.state.strategyId);
+        const mainRange = pool.recommendedRanges[0];
+
+        if (nftTokenId && this.v3pm) {
+          try {
+            const poolState = await this.v3pm.getPoolState(strategy.pool);
+            const alignedLower = Math.floor(mainRange.tickLower / poolState.tickSpacing) * poolState.tickSpacing;
+            const alignedUpper = Math.ceil(mainRange.tickUpper / poolState.tickSpacing) * poolState.tickSpacing;
+
+            const rebalanceResult = await this.v3pm.rebalance(
+              nftTokenId,
+              alignedLower,
+              alignedUpper,
+              strategy.pool,
+            );
+
+            // Update tracked NFT tokenId (new position after rebalance)
+            this.v3Positions.set(this.state.strategyId, rebalanceResult.newTokenId);
+            const ctx = this.strategyContexts.get(this.state.strategyId);
+            if (ctx) ctx.nftTokenId = String(rebalanceResult.newTokenId);
+
+            txHash = rebalanceResult.txHash;
+
+            await this.executor.recordExecution({
+              strategyId: this.state.strategyId,
+              action: ACTION_REBALANCE,
+              tickLower: alignedLower,
+              tickUpper: alignedUpper,
+              txHash: rebalanceResult.txHash,
+              externalId: `v3-nft-${rebalanceResult.newTokenId}`,
+            }).catch((err) =>
+              console.error(`[AgentCoordinator] recordExecution after V3 rebalance failed:`, err?.message ?? err)
+            );
+
+            console.log(
+              `[AgentCoordinator] V3 rebalance complete: old=#${nftTokenId} → new=#${rebalanceResult.newTokenId}, ` +
+              `liquidity=${rebalanceResult.newLiquidity}, tx=${rebalanceResult.txHash}`
+            );
+          } catch (err: any) {
+            console.error(`[AgentCoordinator] V3 rebalance failed, trying OnchainOS swap fallback:`, err?.message ?? err);
+            // Fall through to OnchainOS swap rebalance
+            const rebalanceInfo = await this.rebalanceViaOnchainOS(
+              this.state.strategyId, pool, mainRange
+            ).catch(() => null);
+            if (rebalanceInfo?.txHash) {
+              await this.executor.recordExecution({
+                strategyId: this.state.strategyId,
+                action: ACTION_REBALANCE,
+                tickLower: mainRange.tickLower,
+                tickUpper: mainRange.tickUpper,
+                txHash: rebalanceInfo.txHash,
+                externalId: rebalanceInfo.investmentId,
+              }).catch((err) =>
+                console.error(`[AgentCoordinator] recordExecution after rebalance failed:`, err?.message ?? err)
+              );
+              txHash = rebalanceInfo.txHash;
+            }
+          }
+        } else {
+          // --- Priority 2: OnchainOS swap rebalance (legacy path) ---
+          const rebalanceInfo = await this.rebalanceViaOnchainOS(
+            this.state.strategyId, pool, mainRange
+          ).catch((err) => {
+            console.error(`[AgentCoordinator] OnchainOS rebalance failed:`, err?.message ?? err);
+            return null;
+          });
+          if (rebalanceInfo?.txHash) {
+            await this.executor.recordExecution({
               strategyId: this.state.strategyId,
               action: ACTION_REBALANCE,
               tickLower: mainRange.tickLower,
               tickUpper: mainRange.tickUpper,
               txHash: rebalanceInfo.txHash,
               externalId: rebalanceInfo.investmentId,
-            })
-            .catch((err) =>
-              console.error(
-                `[AgentCoordinator] recordExecution after rebalance failed:`,
-                err?.message ?? err
-              )
+            }).catch((err) =>
+              console.error(`[AgentCoordinator] recordExecution after rebalance failed:`, err?.message ?? err)
             );
-          txHash = rebalanceInfo.txHash;
+            txHash = rebalanceInfo.txHash;
+          }
         }
       } else {
         // HOLD - still log it on-chain (audit-only, no OnchainOS tx)
@@ -828,6 +1254,24 @@ export class AgentCoordinator {
 
     this.evaluationHistory.push(evalResult);
     this.onEvaluation?.(evalResult);
+
+    // Proactive alert on significant price moves
+    if (this.evaluationHistory.length >= 2) {
+      const prev = this.evaluationHistory[this.evaluationHistory.length - 2];
+      const priceDelta = prev.market?.currentPrice
+        ? ((evalResult.market.currentPrice - prev.market.currentPrice) / prev.market.currentPrice) * 100
+        : 0;
+      if (Math.abs(priceDelta) >= 3) {
+        const direction = priceDelta > 0 ? "surged" : "dropped";
+        const severity: "critical" | "warn" = Math.abs(priceDelta) >= 5 ? "critical" : "warn";
+        this.onAlert?.({
+          type: "price_move",
+          message: `OKB ${direction} ${Math.abs(priceDelta).toFixed(1)}% — ${evalResult.action === "hold" ? "holding position" : `triggered ${evalResult.action}`}. Confidence: ${evalResult.confidence}%`,
+          severity,
+          data: { priceDelta, action: evalResult.action, confidence: evalResult.confidence },
+        });
+      }
+    }
 
     this.state.lastEvaluation = Date.now();
     this.state.lastFullEval = Date.now();
@@ -1002,6 +1446,16 @@ Generate reasoning (max 200 chars):`,
     report += `Strategy ID: ${s.strategyId ?? "None"}\n`;
     report += `Evaluations: ${s.evaluationCount}\n`;
     report += `Risk Profile: ${s.intent?.riskProfile || "N/A"}\n`;
+    report += `V3 LP Mode: ${this.v3pm ? "ENABLED" : "swap-only"}\n`;
+
+    // V3 position info
+    if (s.strategyId !== null) {
+      const nftId = this.v3Positions.get(s.strategyId);
+      if (nftId) {
+        report += `V3 NFT Position: #${nftId}\n`;
+        report += `NPM: ${config.uniswapV3.positionManager}\n`;
+      }
+    }
 
     if (latest) {
       report += `\nLast Evaluation: ${new Date(latest.timestamp).toLocaleString()}\n`;
@@ -1442,22 +1896,53 @@ Generate reasoning (max 200 chars):`,
   }
 
   /**
-   * Harvest accrued fees.
+   * Harvest accrued fees from V3 LP positions.
    *
-   * In V3 LP mode this would call `onchainos defi collect --reward-type
-   * V3_FEE`. In swap mode there is no V3 position, so there are no fees to
-   * collect — the method is a no-op that returns null, letting the caller
-   * keep the audit row as a heartbeat.
-   *
-   * This is intentional: the trade-off of moving from LP to swap mode is
-   * giving up V3 fee yield in exchange for having a path that actually
-   * broadcasts through the Agentic Wallet TEE (see `depositViaOnchainOS`
-   * for the full rationale on why `defi invest` was unusable).
+   * If we have a real V3 NFT position (minted via V3PositionManager),
+   * calls NonfungiblePositionManager.collect() directly to sweep fees.
+   * Otherwise returns null (swap-mode heartbeat).
    */
   private async collectViaOnchainOS(
-    _strategyId: number
+    strategyId: number
   ): Promise<{ txHash: string; investmentId: string } | null> {
-    return null;
+    // Check if we have a real V3 NFT for this strategy
+    const nftTokenId = this.v3Positions.get(strategyId);
+    if (!nftTokenId || !this.v3pm) {
+      return null; // no V3 position — swap mode heartbeat
+    }
+
+    try {
+      // Check if there are fees to collect first
+      const position = await this.v3pm.getPosition(nftTokenId);
+      if (position.tokensOwed0 === 0n && position.tokensOwed1 === 0n) {
+        // Read uncollected fees from the contract by attempting a static call
+        console.log(
+          `[AgentCoordinator] V3 position #${nftTokenId}: no pending fees this cycle`
+        );
+        return null;
+      }
+
+      const collectResult = await this.v3pm.collectFees(nftTokenId);
+      if (collectResult.amount0 === 0n && collectResult.amount1 === 0n) {
+        return null; // nothing collected
+      }
+
+      console.log(
+        `[AgentCoordinator] V3 fees collected for strategy ${strategyId} (NFT #${nftTokenId}): ` +
+        `amount0=${collectResult.amount0}, amount1=${collectResult.amount1}, tx=${collectResult.txHash}`
+      );
+
+      return {
+        txHash: collectResult.txHash,
+        investmentId: `v3-nft-${nftTokenId}`,
+      };
+    } catch (err: any) {
+      console.error(
+        `[AgentCoordinator] V3 fee collection failed for NFT #${nftTokenId}:`,
+        err?.message ?? err
+      );
+      return null;
+    }
   }
 
   /**

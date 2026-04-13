@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { site } from "@/config/site";
 import { XIcon } from "./icons/XIcon";
+import { useAccount, useBalance } from "wagmi";
 
 const NAV = [
   { href: "/app", label: "Agent", icon: Brain },
@@ -16,6 +17,12 @@ const NAV = [
 
 export function Header() {
   const pathname = usePathname();
+  const { address, isConnected } = useAccount();
+  const { data: usdtBalance } = useBalance({
+    address,
+    token: "0x779ded0c9e1022225f8e0630b35a9b54be713736" as `0x${string}`,
+    query: { enabled: isConnected },
+  });
   return (
     <header className="border-b border-bg-border bg-bg/80 backdrop-blur-xl sticky top-0 z-40">
       <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
@@ -69,7 +76,12 @@ export function Header() {
           >
             <XIcon className="w-4 h-4" />
           </a>
-          <ConnectButton showBalance={false} chainStatus="icon" />
+          <ConnectButton showBalance={true} chainStatus="icon" />
+          {isConnected && usdtBalance && (
+            <div className="text-xs font-mono text-white/50 px-2">
+              {parseFloat(usdtBalance.formatted).toFixed(2)} USDT
+            </div>
+          )}
         </div>
       </div>
     </header>

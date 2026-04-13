@@ -7,9 +7,11 @@ import {
   connectorsForWallets,
 } from "@rainbow-me/rainbowkit";
 import {
-  injectedWallet,
+  okxWallet,
   metaMaskWallet,
   walletConnectWallet,
+  coinbaseWallet,
+  injectedWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import { defineChain } from "viem";
@@ -35,7 +37,11 @@ const connectors = connectorsForWallets(
   [
     {
       groupName: "Recommended",
-      wallets: [injectedWallet, metaMaskWallet, walletConnectWallet],
+      wallets: [okxWallet, metaMaskWallet, walletConnectWallet],
+    },
+    {
+      groupName: "More",
+      wallets: [coinbaseWallet, injectedWallet],
     },
   ],
   { appName: "YieldAgent", projectId }

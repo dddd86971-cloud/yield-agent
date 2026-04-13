@@ -11,11 +11,17 @@ const SAMPLE_PROMPTS = [
   "Conservative LP for OKB with 2000 USDC",
 ];
 
+const POOLS = [
+  { label: "USDT/OKB 0.3%", address: "0x63d62734847E55A266FCa4219A9aD0a02D5F6e02" },
+  { label: "WETH/USDT 0.3%", address: "0xd4e12E274AEFC5F0b4abC1fC5D9581e4B8bE04da" },
+];
+
 export function IntentInput({ onIntent }: { onIntent: (intent: UserIntent) => void }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [intent, setIntent] = useState<UserIntent | null>(null);
   const [error, setError] = useState("");
+  const [selectedPool, setSelectedPool] = useState(POOLS[0].address);
 
   const submit = async () => {
     if (!input.trim() || loading) return;
@@ -77,6 +83,27 @@ export function IntentInput({ onIntent }: { onIntent: (intent: UserIntent) => vo
             <Send className="w-4 h-4" />
           )}
         </button>
+      </div>
+
+      {/* Pool selector */}
+      <div className="mt-3 flex items-center gap-3">
+        <span className="text-xs text-white/50 font-mono">Pool:</span>
+        <div className="flex gap-2">
+          {POOLS.map((p) => (
+            <button
+              key={p.address}
+              onClick={() => setSelectedPool(p.address)}
+              className={cn(
+                "text-xs px-3 py-1.5 rounded-lg font-mono transition-colors",
+                selectedPool === p.address
+                  ? "bg-accent/20 text-accent border border-accent/30"
+                  : "bg-bg-border text-white/50 hover:text-white"
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Sample prompts */}

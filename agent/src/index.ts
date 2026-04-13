@@ -10,7 +10,8 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import { AgentCoordinator, AgentState, EvaluationResult } from "./services/AgentCoordinator";
+import { AgentCoordinator, AgentState, EvaluationResult, ChatResponse, StreamEvent } from "./services/AgentCoordinator";
+import { getV3PositionManager } from "./services/V3PositionManager";
 import { config } from "./config";
 
 const app = express();
@@ -75,6 +76,11 @@ coordinator.onEvaluation = (evalResult: EvaluationResult) => {
       : null,
   };
   broadcast({ type: "evaluation", payload: lean });
+};
+
+coordinator.onAlert = (alert) => {
+  console.log(`[alert] ${alert.severity}: ${alert.message}`);
+  broadcast({ type: "alert", payload: alert });
 };
 
 // ============================================================================
@@ -210,11 +216,85 @@ app.post("/api/chat", async (req: Request, res: Response) => {
   try {
     const { message } = req.body;
     if (!message) return res.status(400).json({ error: "message required" });
-    const reply = await coordinator.handleChat(message);
-    res.json({ reply });
+    const chatResponse = await coordinator.handleChat(message);
+    res.json(chatResponse);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// V3 LP positions — list all real Uniswap V3 NFT positions owned by agent
+app.get("/api/v3/positions", async (_req: Request, res: Response) => {
+  try {
+    const v3pm = getV3PositionManager();
+    const tokenIds = await v3pm.getOwnedPositions();
+    const positions = await Promise.all(
+      tokenIds.map(async (id) => {
+        const pos = await v3pm.getPosition(id);
+        return {
+          tokenId: id,
+          token0: pos.token0,
+          token1: pos.token1,
+          fee: pos.fee,
+          tickLower: pos.tickLower,
+          tickUpper: pos.tickUpper,
+          liquidity: pos.liquidity.toString(),
+          tokensOwed0: pos.tokensOwed0.toString(),
+          tokensOwed1: pos.tokensOwed1.toString(),
+        };
+      })
+    );
+    res.json({
+      npmAddress: config.uniswapV3.positionManager,
+      agentAddress: v3pm.agentAddress,
+      totalPositions: positions.length,
+      positions,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// V3 pool state — real-time pool data
+app.get("/api/v3/pool/:address", async (req: Request, res: Response) => {
+  try {
+    const v3pm = getV3PositionManager();
+    const poolState = await v3pm.getPoolState(req.params.address);
+    res.json({
+      pool: req.params.address,
+      sqrtPriceX96: poolState.sqrtPriceX96.toString(),
+      currentTick: poolState.currentTick,
+      tickSpacing: poolState.tickSpacing,
+      liquidity: poolState.liquidity.toString(),
+      token0: poolState.token0,
+      token1: poolState.token1,
+      fee: poolState.fee,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SSE streaming chat — real OpenAI token-by-token streaming + brain progress
+app.post("/api/chat/stream", async (req: Request, res: Response) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ error: "message required" });
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  try {
+    await coordinator.handleChatStream(message, (event: StreamEvent) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    });
+  } catch (err: any) {
+    res.write(`data: ${JSON.stringify({ type: "error", content: err.message })}\n\n`);
+  }
+
+  res.write("data: [DONE]\n\n");
+  res.end();
 });
 
 // ============================================================================
@@ -232,6 +312,9 @@ server.listen(config.port, () => {
   console.log(`  WebSocket:       ws://localhost:${config.port}/ws`);
   console.log(`  StrategyManager: ${config.strategyManager || "(not set)"}`);
   console.log(`  DecisionLogger:  ${config.decisionLogger || "(not set)"}`);
+  console.log(`  V3 Factory:      ${config.uniswapV3.factory}`);
+  console.log(`  V3 NPM:          ${config.uniswapV3.positionManager}`);
+  console.log(`  V3 SwapRouter:   ${config.uniswapV3.swapRouter}`);
   console.log("================================================");
   console.log("");
 });

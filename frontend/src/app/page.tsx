@@ -6,6 +6,7 @@ import { LandingComparison } from "@/components/landing/LandingComparison";
 import { LandingStats } from "@/components/landing/LandingStats";
 import { LandingFAQ } from "@/components/landing/LandingFAQ";
 import { LandingCTA } from "@/components/landing/LandingCTA";
+import { LandingTryAgent } from "@/components/landing/LandingTryAgent";
 import { LandingFooter } from "@/components/landing/LandingFooter";
 import { Reveal } from "@/components/landing/Reveal";
 
@@ -26,6 +27,9 @@ export default function LandingPage() {
         </Reveal>
         <Reveal>
           <LandingStats />
+        </Reveal>
+        <Reveal>
+          <LandingTryAgent />
         </Reveal>
         <Reveal>
           <LandingFAQ />

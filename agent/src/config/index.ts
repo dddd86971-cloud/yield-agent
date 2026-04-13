@@ -27,17 +27,20 @@ export const config = {
   decisionLogger: process.env.DECISION_LOGGER_ADDRESS || "",
   followVaultFactory: process.env.FOLLOW_VAULT_FACTORY_ADDRESS || "",
 
-  // Uniswap V3
+  // Uniswap V3 — official deployment on X Layer (verified via @uniswap/sdk-core v7.13.0)
   uniswapV3: {
-    factory: process.env.UNISWAP_V3_FACTORY || "0x1F98431c8aD98523631AE4a59f267346ea31F984",
-    positionManager: process.env.UNISWAP_V3_POSITION_MANAGER || "0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
-    swapRouter: process.env.UNISWAP_V3_ROUTER || "0xE592427A0AEce92De3Edee1F18E0157C05861564",
-    quoter: process.env.UNISWAP_V3_QUOTER || "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6",
+    factory: process.env.UNISWAP_V3_FACTORY || "0x4B2ab38DBF28D31D467aA8993f6c2585981D6804",
+    positionManager: process.env.UNISWAP_V3_POSITION_MANAGER || "0x315e413a11ab0df498ef83873012430ca36638ae",
+    swapRouter: process.env.UNISWAP_V3_ROUTER || "0x4f0c28f5926afda16bf2506d5d9e57ea190f9bca",
+    quoter: process.env.UNISWAP_V3_QUOTER || "0x976183ac3d09840d243a88c0268badb3b3e3259f",
+    tickLens: process.env.UNISWAP_V3_TICK_LENS || "0x661e93cca42afacb172121ef892830ca3b70f08d",
+    multicall: process.env.UNISWAP_V3_MULTICALL || "0xe2023f3fa515cf070e07fd9d51c1d236e07843f4",
   },
 
   // Tokens on X Layer
   tokens: {
     WOKB: process.env.WOKB_ADDRESS || "0xe538905cf8410324e03a5a23c1c177a474d59b2b",
+    USDT: process.env.USDT_ADDRESS || "0x779ded0c9e1022225f8e0630b35a9b54be713736",
     USDC: process.env.USDC_ADDRESS || "0x74b7f16337b8972027f6196a17a631ac6de26d22",
     WETH: process.env.WETH_ADDRESS || "0x5a77f1443d16ee5461801882a092c8620b8c4d58",
   },
@@ -81,6 +84,22 @@ export const config = {
     nativeTokenAddress: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     stableTokenAddress: "0x779ded0c9e1022225f8e0630b35a9b54be713736", // USDT
     stableTokenSymbol: "USDT",
+  },
+
+  // Pools
+  pools: {
+    "USDT/OKB": {
+      address: "0x63d62734847E55A266FCa4219A9aD0a02D5F6e02",
+      fee: 3000,
+      token0Symbol: "USDT",
+      token1Symbol: "OKB",
+    },
+    "WETH/USDT": {
+      address: "0xd4e12E274AEFC5F0b4abC1fC5D9581e4B8bE04da",
+      fee: 3000,
+      token0Symbol: "WETH",
+      token1Symbol: "USDT",
+    },
   },
 
   // Server

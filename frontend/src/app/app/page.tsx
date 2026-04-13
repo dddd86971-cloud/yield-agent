@@ -1,12 +1,14 @@
 "use client";
 
 import { Header } from "@/components/Header";
+import { AlertBanner } from "@/components/AlertBanner";
 import { StatusBar } from "@/components/StatusBar";
 import { ThreeBrainPanel } from "@/components/ThreeBrainPanel";
 import { LPRangeChart } from "@/components/LPRangeChart";
 import { IntentInput } from "@/components/IntentInput";
 import { DeployControls } from "@/components/DeployControls";
 import { AgentChat } from "@/components/AgentChat";
+import { V3Positions } from "@/components/V3Positions";
 import { DecisionLog } from "@/components/DecisionLog";
 import { useState } from "react";
 import { UserIntent } from "@/lib/api";
@@ -23,6 +25,7 @@ export default function AppDashboardPage() {
   return (
     <div className="min-h-screen">
       <Header />
+      <AlertBanner />
 
       <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
         <div>
@@ -41,6 +44,7 @@ export default function AppDashboardPage() {
           <div className="lg:col-span-2 space-y-6">
             <IntentInput onIntent={setIntent} />
             <DeployControls intent={intent} state={state} />
+            <V3Positions />
             <ThreeBrainPanel />
             <LPRangeChart />
           </div>

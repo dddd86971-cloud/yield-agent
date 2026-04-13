@@ -107,6 +107,21 @@ export interface HealthInfo {
   error?: string;
 }
 
+/** Structured response from /api/chat — action field triggers inline UI in the chat. */
+export interface ChatResponse {
+  reply: string;
+  action?: "deploy" | "monitor_start" | "monitor_stop" | "analyze" | "adjust_risk";
+  data?: any;
+}
+
+/** SSE event from /api/chat/stream — real-time brain progress + OpenAI token streaming. */
+export interface StreamEvent {
+  type: "status" | "chunk" | "brain" | "done" | "error";
+  content?: string;
+  action?: string;
+  data?: any;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${AGENT_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -119,8 +134,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface V3Position {
+  tokenId: number;
+  token0: string;
+  token1: string;
+  fee: number;
+  tickLower: number;
+  tickUpper: number;
+  liquidity: string;
+  tokensOwed0: string;
+  tokensOwed1: string;
+}
+
+export interface V3PositionsResponse {
+  npmAddress: string;
+  agentAddress: string;
+  totalPositions: number;
+  positions: V3Position[];
+}
+
+export interface V3PoolState {
+  pool: string;
+  sqrtPriceX96: string;
+  currentTick: number;
+  tickSpacing: number;
+  liquidity: string;
+  token0: string;
+  token1: string;
+  fee: number;
+}
+
 export const api = {
   health: () => request<HealthInfo>("/api/health"),
+  v3Positions: () => request<V3PositionsResponse>("/api/v3/positions"),
+  v3Pool: (address: string) => request<V3PoolState>(`/api/v3/pool/${address}`),
   state: () => request<AgentState>("/api/state"),
   history: () => request<EvaluationLite[]>("/api/history"),
   latest: () => request<EvaluationLite | null>("/api/latest"),
@@ -170,20 +217,61 @@ export const api = {
     }),
 
   chat: (message: string) =>
-    request<{ reply: string }>("/api/chat", {
+    request<ChatResponse>("/api/chat", {
       method: "POST",
       body: JSON.stringify({ message }),
     }),
+
+  /** SSE streaming chat — yields StreamEvent via callback. */
+  chatStream: async (
+    message: string,
+    onEvent: (event: StreamEvent) => void,
+  ): Promise<void> => {
+    const res = await fetch(`${AGENT_URL}/api/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    if (!res.ok) throw new Error(`Stream failed: ${res.status}`);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const raw = line.slice(6);
+          if (raw === "[DONE]") return;
+          try {
+            onEvent(JSON.parse(raw));
+          } catch {}
+        }
+      }
+    }
+  },
 };
 
 // ============================================================================
 // WebSocket connection
 // ============================================================================
 
+export interface AlertPayload {
+  type: string;
+  message: string;
+  severity: "info" | "warn" | "critical";
+  data?: any;
+}
+
 export type WsEvent =
   | { type: "state"; payload: AgentState }
   | { type: "evaluation"; payload: EvaluationLite }
-  | { type: "history"; payload: EvaluationLite[] };
+  | { type: "history"; payload: EvaluationLite[] }
+  | { type: "alert"; payload: AlertPayload };
 
 export function connectAgentWs(onEvent: (e: WsEvent) => void): () => void {
   const wsUrl = AGENT_URL.replace(/^http/, "ws") + "/ws";

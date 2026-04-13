@@ -60,6 +60,16 @@ export default function DecisionsPage() {
           </div>
         </div>
 
+        {history.length === 0 && (
+          <div className="card text-center py-12">
+            <BookOpen className="w-12 h-12 text-white/10 mx-auto mb-4" />
+            <div className="text-lg font-bold text-white/40 mb-2">No decisions yet</div>
+            <div className="text-sm text-white/30">
+              Deploy a strategy from the Agent Dashboard to start generating decisions.
+            </div>
+          </div>
+        )}
+
         <DecisionLog limit={50} />
       </main>
     </div>
