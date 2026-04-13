@@ -4,16 +4,11 @@ import "@rainbow-me/rainbowkit/styles.css";
 import {
   RainbowKitProvider,
   darkTheme,
-  connectorsForWallets,
+  getDefaultConfig,
 } from "@rainbow-me/rainbowkit";
-import {
-  okxWallet,
-  metaMaskWallet,
-  coinbaseWallet,
-  injectedWallet,
-} from "@rainbow-me/rainbowkit/wallets";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import { defineChain } from "viem";
+import { injected } from "wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactNode } from "react";
 import { AgentStateProvider } from "@/lib/hooks";
@@ -31,28 +26,12 @@ export const xLayer = defineChain({
   },
 });
 
-// WalletConnect removed — requires a paid project ID from cloud.walletconnect.com
-// and causes "Connection interrupted" runtime errors without one.
-// OKX Wallet + MetaMask cover all demo needs.
-const projectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "placeholder";
-
-const connectors = connectorsForWallets(
-  [
-    {
-      groupName: "Recommended",
-      wallets: [okxWallet, metaMaskWallet],
-    },
-    {
-      groupName: "More",
-      wallets: [coinbaseWallet, injectedWallet],
-    },
-  ],
-  { appName: "YieldAgent", projectId }
-);
-
+// Use wagmi native connectors — NO WalletConnect (requires paid project ID
+// and crashes with "Connection interrupted while trying to subscribe").
+// injected() auto-detects OKX Wallet, MetaMask, and any browser wallet.
 const wagmiConfig = createConfig({
   chains: [xLayer],
-  connectors,
+  connectors: [injected()],
   transports: { [xLayer.id]: http() },
   ssr: true,
 });
