@@ -3,46 +3,56 @@
 import { useLatestEvaluation, useAgentState } from "@/lib/hooks";
 import { useEffect, useState } from "react";
 import { api, EvaluationLite } from "@/lib/api";
+import { fetchBrainDataFromRpc, BrainSnapshot } from "@/lib/brainRpc";
 import { TrendingUp, Activity, Shield, Zap } from "lucide-react";
 import { cn, formatPercent, formatUSD, riskColor } from "@/lib/utils";
 
 export function ThreeBrainPanel() {
   const latest = useLatestEvaluation();
   const { state } = useAgentState();
-  const [directFetch, setDirectFetch] = useState<EvaluationLite | null>(null);
+  const [directFetch, setDirectFetch] = useState<EvaluationLite | BrainSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // If no evaluation from WebSocket yet, fetch a live brain snapshot
+  // Cascading data fetch: WS → /api/latest → /api/brains/snapshot → direct RPC
   useEffect(() => {
     if (latest) return; // Already have data from WS
     let cancelled = false;
     setLoading(true);
 
-    // Try /api/latest first (fast, cached), then /api/brains/snapshot (live analysis)
-    api.latest().then((data) => {
-      if (!cancelled && data && data.market) {
-        setDirectFetch(data);
-        setLoading(false);
-      } else if (!cancelled) {
-        // No evaluation history — fetch live brain snapshot
-        api.brainsSnapshot().then((snap) => {
-          if (!cancelled) {
-            setDirectFetch(snap);
-            setLoading(false);
-          }
-        }).catch(() => { if (!cancelled) setLoading(false); });
+    const tryBackendApis = async () => {
+      // 1. Try /api/latest
+      try {
+        const data = await api.latest();
+        if (!cancelled && data && data.market) {
+          setDirectFetch(data);
+          setLoading(false);
+          return;
+        }
+      } catch {}
+      // 2. Try /api/brains/snapshot
+      try {
+        const snap = await api.brainsSnapshot();
+        if (!cancelled && snap && snap.market?.currentPrice) {
+          setDirectFetch(snap);
+          setLoading(false);
+          return;
+        }
+      } catch {}
+      // 3. Final fallback: direct on-chain RPC read (works on Vercel!)
+      try {
+        const rpcData = await fetchBrainDataFromRpc();
+        if (!cancelled) {
+          setDirectFetch(rpcData);
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.error("[ThreeBrainPanel] all data sources failed:", err);
       }
-    }).catch(() => {
-      if (!cancelled) {
-        api.brainsSnapshot().then((snap) => {
-          if (!cancelled) {
-            setDirectFetch(snap);
-            setLoading(false);
-          }
-        }).catch(() => { if (!cancelled) setLoading(false); });
-      }
-    });
+      if (!cancelled) setLoading(false);
+    };
 
+    tryBackendApis();
     return () => { cancelled = true; };
   }, [latest]);
 

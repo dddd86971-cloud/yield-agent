@@ -9,7 +9,6 @@ import {
 import {
   okxWallet,
   metaMaskWallet,
-  walletConnectWallet,
   coinbaseWallet,
   injectedWallet,
 } from "@rainbow-me/rainbowkit/wallets";
@@ -32,13 +31,16 @@ export const xLayer = defineChain({
   },
 });
 
-const projectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "yieldagent_demo";
+// WalletConnect removed — requires a paid project ID from cloud.walletconnect.com
+// and causes "Connection interrupted" runtime errors without one.
+// OKX Wallet + MetaMask cover all demo needs.
+const projectId = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "placeholder";
 
 const connectors = connectorsForWallets(
   [
     {
       groupName: "Recommended",
-      wallets: [okxWallet, metaMaskWallet, walletConnectWallet],
+      wallets: [okxWallet, metaMaskWallet],
     },
     {
       groupName: "More",
