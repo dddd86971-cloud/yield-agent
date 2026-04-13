@@ -266,42 +266,52 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
           </div>
         )}
 
-        {/* Deploy result */}
+        {/* Deploy result — success banner */}
         {result && (
-          <div className="p-3 bg-bg rounded-xl border border-accent/20 text-xs space-y-1.5">
-            <div className="flex items-center gap-2 text-accent font-bold">
-              Deployed — strategyId {result.strategyId}
+          <div className="p-4 bg-accent/5 rounded-xl border border-accent/30 text-xs space-y-2">
+            <div className="flex items-center gap-2 text-accent font-bold text-sm">
+              <span className="w-6 h-6 bg-accent/20 rounded-full flex items-center justify-center text-accent">✓</span>
+              Strategy #{result.strategyId} Deployed Successfully
               <span className="px-2 py-0.5 rounded bg-accent/20 text-[10px] uppercase tracking-wider">
                 {result.executionMode}
               </span>
             </div>
-            <a
-              href={`https://www.oklink.com/xlayer/tx/${result.txHash}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1 font-mono text-white/70 hover:text-accent break-all"
-            >
-              audit tx (StrategyManager): {shortHash(result.txHash)}
-              <ExternalLink className="w-3 h-3 flex-shrink-0" />
-            </a>
-            {result.onchainTxHash && (
+
+            <div className="grid grid-cols-1 gap-1.5 pl-8">
               <a
-                href={`https://www.oklink.com/xlayer/tx/${result.onchainTxHash}`}
+                href={`https://www.oklink.com/xlayer/tx/${result.txHash}`}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-1 font-mono text-white/70 hover:text-accent break-all"
               >
-                onchainos swap (TEE): {shortHash(result.onchainTxHash)}
+                📋 Audit TX: {shortHash(result.txHash)}
                 <ExternalLink className="w-3 h-3 flex-shrink-0" />
               </a>
-            )}
-            {result.investmentId && (
-              <div className="font-mono text-white/50">
-                investmentId: {result.investmentId}
-              </div>
-            )}
-            <div className="text-white/60 italic pt-1 leading-relaxed">
+              {result.onchainTxHash && (
+                <a
+                  href={`https://www.oklink.com/xlayer/tx/${result.onchainTxHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 font-mono text-white/70 hover:text-accent break-all"
+                >
+                  🔐 TEE Signed TX: {shortHash(result.onchainTxHash)}
+                  <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                </a>
+              )}
+              {result.investmentId && (
+                <div className="font-mono text-white/50">
+                  🆔 Investment: {result.investmentId}
+                </div>
+              )}
+            </div>
+
+            <div className="text-white/60 italic pt-1 pl-8 leading-relaxed border-t border-white/5 mt-2 pt-2">
               {result.reasoning}
+            </div>
+
+            <div className="pl-8 pt-1 text-white/40">
+              ↓ Your new LP position will appear in the V3 LP Positions section below.
+              Start monitoring to let the three brains manage it automatically.
             </div>
           </div>
         )}

@@ -109,14 +109,29 @@ export function V3Positions() {
         </div>
       )}
 
-      {/* Positions */}
-      {(!data || data.totalPositions === 0) ? (
-        <div className="text-center py-6 text-white/30 text-sm">
-          No V3 LP positions yet. Deploy a strategy to mint one.
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {data.positions.map((pos) => {
+      {/* Positions — hide fully drained (liquidity=0, no fees) NFTs */}
+      {(() => {
+        const activePositions = data?.positions.filter(
+          (p) => p.liquidity !== "0" || p.tokensOwed0 !== "0" || p.tokensOwed1 !== "0"
+        ) ?? [];
+        const closedCount = (data?.totalPositions ?? 0) - activePositions.length;
+
+        if (activePositions.length === 0) {
+          return (
+            <div className="text-center py-6 text-white/30 text-sm">
+              No active V3 LP positions. Deploy a strategy to mint one.
+              {closedCount > 0 && (
+                <span className="block mt-1 text-white/20 text-xs">
+                  ({closedCount} closed position{closedCount > 1 ? "s" : ""} hidden)
+                </span>
+              )}
+            </div>
+          );
+        }
+
+        return (
+          <div className="space-y-3">
+            {activePositions.map((pos) => {
             const lowerPrice = priceToWokbPerUsdt(tickToPrice(pos.tickLower));
             const upperPrice = priceToWokbPerUsdt(tickToPrice(pos.tickUpper));
             const spotPrice = priceToWokbPerUsdt(currentPrice);
@@ -155,7 +170,7 @@ export function V3Positions() {
                     </span>
                   </div>
                   <a
-                    href={`https://www.oklink.com/xlayer/address/${data.npmAddress}`}
+                    href={`https://www.oklink.com/xlayer/address/${data?.npmAddress}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-[10px] text-accent hover:underline"
@@ -210,9 +225,15 @@ export function V3Positions() {
                 </div>
               </div>
             );
-          })}
-        </div>
-      )}
+            })}
+            {closedCount > 0 && (
+              <div className="text-center text-white/20 text-xs mt-2">
+                {closedCount} closed position{closedCount > 1 ? "s" : ""} hidden
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* NPM contract info */}
       <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between text-[10px] text-white/30">
