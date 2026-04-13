@@ -17,6 +17,7 @@ import { WagmiProvider, createConfig, http } from "wagmi";
 import { defineChain } from "viem";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactNode } from "react";
+import { AgentStateProvider } from "@/lib/hooks";
 
 // X Layer mainnet definition
 export const xLayer = defineChain({
@@ -67,7 +68,7 @@ export function Providers({ children }: { children: ReactNode }) {
             borderRadius: "large",
           })}
         >
-          {children}
+          <AgentStateProvider>{children}</AgentStateProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

@@ -1,11 +1,31 @@
 "use client";
 
-import { useLatestEvaluation } from "@/lib/hooks";
+import { useLatestEvaluation, useAgentState } from "@/lib/hooks";
+import { useEffect, useState } from "react";
+import { api, EvaluationLite } from "@/lib/api";
 import { TrendingUp, Activity, Shield, Zap } from "lucide-react";
 import { cn, formatPercent, formatUSD, riskColor } from "@/lib/utils";
 
 export function ThreeBrainPanel() {
   const latest = useLatestEvaluation();
+  const { state } = useAgentState();
+  const [directFetch, setDirectFetch] = useState<EvaluationLite | null>(null);
+
+  // If no evaluation from WebSocket yet, poll /api/latest every 5s
+  useEffect(() => {
+    if (latest) return; // Already have data from WS
+    let cancelled = false;
+    const poll = () => {
+      api.latest().then((data) => {
+        if (!cancelled && data) setDirectFetch(data);
+      }).catch(() => {});
+    };
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [latest]);
+
+  const data = latest || directFetch;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -15,24 +35,24 @@ export function ThreeBrainPanel() {
         accent="from-blue-500/20 to-blue-500/0"
         iconBg="bg-blue-500/20 text-blue-400"
       >
-        {latest?.market ? (
+        {data?.market && data.market.currentPrice ? (
           <div className="space-y-3">
-            <Stat label="Current Price" value={`$${latest.market.currentPrice?.toFixed(4) || "—"}`} />
+            <Stat label="Current Price" value={`$${data.market.currentPrice?.toFixed(4) || "—"}`} />
             <Stat
               label="1h Change"
-              value={formatPercent(latest.market.priceChange1h)}
+              value={formatPercent(data.market.priceChange1h)}
               valueClass={
-                (latest.market.priceChange1h ?? 0) >= 0 ? "text-accent" : "text-danger"
+                (data.market.priceChange1h ?? 0) >= 0 ? "text-accent" : "text-danger"
               }
             />
-            <Stat label="Volatility" value={formatPercent(latest.market.volatility)} />
+            <Stat label="Volatility" value={formatPercent(data.market.volatility)} />
             <div>
               <div className="stat-label mb-1">State</div>
-              <div className="badge-neutral inline-block">{latest.market.marketState}</div>
+              <div className="badge-neutral inline-block">{data.market.marketState}</div>
             </div>
           </div>
         ) : (
-          <Skeleton />
+          <Skeleton label={state?.status === "monitoring" ? "Analyzing market…" : "Start monitoring to activate"} />
         )}
       </BrainCard>
 
@@ -42,22 +62,22 @@ export function ThreeBrainPanel() {
         accent="from-accent/20 to-accent/0"
         iconBg="bg-accent/20 text-accent"
       >
-        {latest?.pool ? (
+        {data?.pool && data.pool.token0Symbol ? (
           <div className="space-y-3">
             <Stat
               label="Pair"
-              value={`${latest.pool.token0Symbol || "—"}/${latest.pool.token1Symbol || "—"}`}
+              value={`${data.pool.token0Symbol || "—"}/${data.pool.token1Symbol || "—"}`}
             />
             <Stat
               label="Fee APR"
-              value={formatPercent(latest.pool.feeAPR)}
+              value={formatPercent(data.pool.feeAPR)}
               valueClass="text-accent text-3xl"
             />
-            <Stat label="TVL" value={formatUSD(latest.pool.tvl)} />
-            <Stat label="Current Tick" value={latest.pool.currentTick?.toString() || "—"} />
+            <Stat label="TVL" value={formatUSD(data.pool.tvl)} />
+            <Stat label="Current Tick" value={data.pool.currentTick?.toString() || "—"} />
           </div>
         ) : (
-          <Skeleton />
+          <Skeleton label={state?.status === "monitoring" ? "Analyzing pool…" : "Start monitoring to activate"} />
         )}
       </BrainCard>
 
@@ -67,40 +87,40 @@ export function ThreeBrainPanel() {
         accent="from-warn/20 to-warn/0"
         iconBg="bg-warn/20 text-warn"
       >
-        {latest?.risk ? (
+        {data?.risk ? (
           <div className="space-y-3">
             <Stat
               label="Position Health"
-              value={`${latest.risk.positionHealthPercent}/100`}
+              value={`${data.risk.positionHealthPercent}/100`}
               valueClass={
-                latest.risk.positionHealthPercent > 60
+                data.risk.positionHealthPercent > 60
                   ? "text-accent"
-                  : latest.risk.positionHealthPercent > 30
+                  : data.risk.positionHealthPercent > 30
                   ? "text-warn"
                   : "text-danger"
               }
             />
             <Stat
               label="Impermanent Loss"
-              value={formatPercent(latest.risk.impermanentLoss * 100)}
+              value={formatPercent(data.risk.impermanentLoss * 100)}
             />
             <div>
               <div className="stat-label mb-1">In Range</div>
-              <div className={cn("badge inline-block", latest.risk.isInRange ? "badge-ok" : "badge-danger")}>
-                {latest.risk.isInRange ? "YES" : "OUT"}
+              <div className={cn("badge inline-block", data.risk.isInRange ? "badge-ok" : "badge-danger")}>
+                {data.risk.isInRange ? "YES" : "OUT"}
               </div>
             </div>
             <div>
               <div className="stat-label mb-1">Risk Level</div>
               <div className={cn("badge inline-block", `bg-current/10`)}>
-                <span className={riskColor(latest.risk.riskLevel)}>
-                  {latest.risk.riskLevel.toUpperCase()}
+                <span className={riskColor(data.risk.riskLevel)}>
+                  {data.risk.riskLevel.toUpperCase()}
                 </span>
               </div>
             </div>
           </div>
         ) : (
-          <Skeleton />
+          <Skeleton label={state?.status === "monitoring" ? "Assessing risk…" : "No active position"} />
         )}
       </BrainCard>
     </div>
@@ -156,9 +176,12 @@ function Stat({
   );
 }
 
-function Skeleton() {
+function Skeleton({ label }: { label?: string }) {
   return (
     <div className="space-y-3">
+      {label && (
+        <div className="text-xs text-white/40 font-mono mb-2">{label}</div>
+      )}
       <div className="h-5 bg-bg-border rounded animate-pulse" />
       <div className="h-5 bg-bg-border rounded animate-pulse w-3/4" />
       <div className="h-5 bg-bg-border rounded animate-pulse w-1/2" />

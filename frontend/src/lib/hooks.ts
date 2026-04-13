@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, createContext, useContext } from "react";
 import {
   api,
   AgentState,
@@ -14,8 +14,29 @@ export interface AlertEntry extends AlertPayload {
   timestamp: number;
 }
 
-/** Live agent state via WebSocket with polling fallback. */
-export function useAgentState() {
+// ============================================================================
+// Shared agent-state context — single WebSocket for the entire app
+// ============================================================================
+
+interface AgentCtx {
+  state: AgentState | null;
+  history: EvaluationLite[];
+  connected: boolean;
+  alerts: AlertEntry[];
+}
+
+const AgentContext = createContext<AgentCtx>({
+  state: null,
+  history: [],
+  connected: false,
+  alerts: [],
+});
+
+/**
+ * Provider — mount once at the app root. Opens one WebSocket,
+ * fetches initial state + history, and shares to all children.
+ */
+export function AgentStateProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AgentState | null>(null);
   const [history, setHistory] = useState<EvaluationLite[]>([]);
   const [connected, setConnected] = useState(false);
@@ -38,7 +59,7 @@ export function useAgentState() {
   }, []);
 
   useEffect(() => {
-    // Initial fetch
+    // Initial REST fetch (fast path — data shows before WS reconnects)
     api
       .state()
       .then(setState)
@@ -46,21 +67,44 @@ export function useAgentState() {
     api
       .history()
       .then((h) => {
-        historyRef.current = h;
-        setHistory(h);
+        if (h.length > 0) {
+          historyRef.current = h;
+          setHistory(h);
+        }
       })
       .catch(() => {});
 
-    // WebSocket subscription
+    // If history is empty, try /api/latest as a fallback
+    // (gives instant brain data even when monitoring just started)
+    api
+      .latest()
+      .then((latest) => {
+        if (latest && historyRef.current.length === 0) {
+          historyRef.current = [latest];
+          setHistory([latest]);
+        }
+      })
+      .catch(() => {});
+
+    // WebSocket subscription — single connection for entire app
     const disconnect = connectAgentWs(handleEvent);
     return disconnect;
   }, [handleEvent]);
 
-  return { state, history, connected, alerts };
+  return React.createElement(
+    AgentContext.Provider,
+    { value: { state, history, connected, alerts } },
+    children,
+  );
 }
 
-/** Latest evaluation derived from history. */
+/** Live agent state via shared context (single WebSocket). */
+export function useAgentState() {
+  return useContext(AgentContext);
+}
+
+/** Latest evaluation derived from shared history. */
 export function useLatestEvaluation() {
-  const { history } = useAgentState();
+  const { history } = useContext(AgentContext);
   return history.length > 0 ? history[history.length - 1] : null;
 }

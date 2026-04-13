@@ -105,6 +105,31 @@ wss.on("connection", (ws) => {
           reasoning: e.reasoning,
           confidence: e.confidence,
           txHash: e.txHash,
+          market: e.market
+            ? {
+                currentPrice: e.market.currentPrice,
+                priceChange1h: e.market.priceChange1h,
+                volatility: e.market.volatility,
+                marketState: e.market.marketState,
+              }
+            : undefined,
+          pool: e.pool
+            ? {
+                token0Symbol: e.pool.token0Symbol,
+                token1Symbol: e.pool.token1Symbol,
+                feeAPR: e.pool.feeAPR,
+                tvl: e.pool.tvl,
+                currentTick: e.pool.currentTick,
+              }
+            : undefined,
+          risk: e.risk
+            ? {
+                impermanentLoss: e.risk.impermanentLoss,
+                positionHealthPercent: e.risk.positionHealthPercent,
+                isInRange: e.risk.isInRange,
+                riskLevel: e.risk.riskLevel,
+              }
+            : null,
         })),
       })
     );
