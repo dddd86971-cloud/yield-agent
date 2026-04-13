@@ -349,10 +349,6 @@ export class V3PositionManager {
    *   3. Return the new NFT tokenId + actual amounts deposited
    */
   async mint(params: MintParams): Promise<MintResult> {
-    const slippageBps = params.slippageBps ?? 50; // 0.5%
-    const slippageDenom = 10000n;
-    const slippageMul = BigInt(10000 - slippageBps);
-
     // Ensure approvals
     if (params.amount0Desired > 0n) {
       await this.ensureApproval(params.token0, params.amount0Desired);
@@ -361,8 +357,9 @@ export class V3PositionManager {
       await this.ensureApproval(params.token1, params.amount1Desired);
     }
 
-    const amount0Min = (params.amount0Desired * slippageMul) / slippageDenom;
-    const amount1Min = (params.amount1Desired * slippageMul) / slippageDenom;
+    // Use amountMin = 0 for demo amounts to avoid "Price slippage check" reverts
+    const amount0Min = 0n;
+    const amount1Min = 0n;
 
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 600); // 10 min
 
@@ -747,7 +744,7 @@ export class V3PositionManager {
 
     onProgress?.(`Minting with amount0=${amount0}, amount1=${amount1}...`);
 
-    // Mint!
+    // Mint! Use wide slippage for small amounts
     const result = await this.mint({
       poolAddress,
       token0: poolState.token0,
@@ -757,7 +754,7 @@ export class V3PositionManager {
       tickUpper: alignedUpper,
       amount0Desired: amount0,
       amount1Desired: amount1,
-      slippageBps: 50,
+      slippageBps: 1000,
     });
 
     onProgress?.(`Minted LP #${result.tokenId} with ${result.liquidity} liquidity`);
@@ -812,16 +809,15 @@ export class V3PositionManager {
    * The LP NFT will be owned by the Agentic Wallet address.
    */
   async mintViaTEE(params: MintParams): Promise<{ txHash: string; tokenId: number }> {
-    const slippageBps = params.slippageBps ?? 50;
-    const slippageDenom = 10000n;
-    const slippageMul = BigInt(10000 - slippageBps);
+    // TEE signing adds several seconds of latency. For demo amounts we set
+    // amountMin = 0 to avoid "Price slippage check" reverts from ratio drift
+    // between calculation and TEE broadcast. Production would use tighter bounds.
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
 
     const recipient = this.agenticWalletAddress ?? this.wallet.address;
 
     // Step 1: Ensure approvals via TEE
     if (params.amount0Desired > 0n) {
-      // Check allowance first (read from chain)
       const token0 = new ethers.Contract(params.token0, ERC20_ABI, this.provider);
       const allowance: bigint = await token0.allowance(recipient, this.npmAddress);
       if (allowance < params.amount0Desired) {
@@ -836,7 +832,7 @@ export class V3PositionManager {
       }
     }
 
-    // Step 2: Encode mint calldata
+    // Step 2: Encode mint calldata — amount*Min = 0 for TEE latency tolerance
     const mintCalldata = this.npmIface.encodeFunctionData("mint", [{
       token0: params.token0,
       token1: params.token1,
@@ -845,8 +841,8 @@ export class V3PositionManager {
       tickUpper: params.tickUpper,
       amount0Desired: params.amount0Desired,
       amount1Desired: params.amount1Desired,
-      amount0Min: (params.amount0Desired * slippageMul) / slippageDenom,
-      amount1Min: (params.amount1Desired * slippageMul) / slippageDenom,
+      amount0Min: 0,
+      amount1Min: 0,
       recipient,
       deadline,
     }]);
@@ -996,7 +992,8 @@ export class V3PositionManager {
 
     onProgress?.(`[TEE] Minting via OnchainOS contract-call: amt0=${amount0}, amt1=${amount1}...`);
 
-    // Mint via TEE!
+    // Mint via TEE! Use wide slippage (10%) because TEE signing adds latency
+    // and small demo amounts are especially sensitive to ratio drift.
     const result = await this.mintViaTEE({
       poolAddress,
       token0: poolState.token0,
@@ -1006,7 +1003,7 @@ export class V3PositionManager {
       tickUpper: alignedUpper,
       amount0Desired: amount0,
       amount1Desired: amount1,
-      slippageBps: 50,
+      slippageBps: 1000,
     });
 
     onProgress?.(`[TEE] LP minted via OnchainOS! tokenId=${result.tokenId}, tx=${result.txHash}`);

@@ -280,8 +280,12 @@ export class AgentCoordinator {
         // `wallet addresses` returns a variety of shapes across CLI versions;
         // extract the first EVM address we can find.
         const candidates: string[] = [];
-        if (Array.isArray(addrs?.xlayer)) candidates.push(...addrs.xlayer);
-        if (Array.isArray(addrs?.evm)) candidates.push(...addrs.evm);
+        // `wallet addresses` returns objects like {address, chainIndex, chainName}
+        // or plain strings depending on CLI version — handle both shapes.
+        const extractAddrs = (arr: any[]) =>
+          arr.map((a: any) => (typeof a === "string" ? a : a?.address)).filter(Boolean);
+        if (Array.isArray(addrs?.xlayer)) candidates.push(...extractAddrs(addrs.xlayer));
+        if (Array.isArray(addrs?.evm)) candidates.push(...extractAddrs(addrs.evm));
         if (typeof addrs?.address === "string") candidates.push(addrs.address);
         agenticWalletAddress = candidates.find((a) => /^0x[0-9a-fA-F]{40}$/.test(a)) ?? null;
       } catch (err: any) {
