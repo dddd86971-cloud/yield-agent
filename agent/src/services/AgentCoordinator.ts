@@ -398,12 +398,34 @@ export class AgentCoordinator {
       this.poolBrain.analyze(poolAddress),
     ]);
 
-    const recommendation = await this.generateRecommendation(market, pool);
+    let recommendation = "";
+    try {
+      recommendation = await this.generateRecommendation(market, pool);
+    } catch (err: any) {
+      console.warn("[analyzeAndRecommend] recommendation generation failed (non-critical):", err?.message?.slice(0, 80));
+      recommendation = `Market: ${market.marketState}, Price: $${market.currentPrice.toFixed(4)}, Vol: ${market.volatility.toFixed(2)}%`;
+    }
 
     this.state.status = "idle";
     this.emitStateChange();
 
     return { market, pool, recommendation };
+  }
+
+  /**
+   * Lightweight brain snapshot — runs MarketBrain + PoolBrain on-chain reads
+   * only. No OpenAI, no state mutation. Used by /api/brains/snapshot so the
+   * dashboard shows live data even when monitoring is not active.
+   */
+  async getBrainSnapshot(poolAddress: string): Promise<{
+    market: MarketAnalysis;
+    pool: PoolAnalysis;
+  }> {
+    const [market, pool] = await Promise.all([
+      this.marketBrain.analyze(poolAddress),
+      this.poolBrain.analyze(poolAddress),
+    ]);
+    return { market, pool };
   }
 
   /**

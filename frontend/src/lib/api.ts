@@ -171,6 +171,7 @@ export const api = {
   state: () => request<AgentState>("/api/state"),
   history: () => request<EvaluationLite[]>("/api/history"),
   latest: () => request<EvaluationLite | null>("/api/latest"),
+  brainsSnapshot: () => request<EvaluationLite>("/api/brains/snapshot"),
 
   parseIntent: (input: string) =>
     request<UserIntent>("/api/intent", {

@@ -183,6 +183,36 @@ app.get("/api/latest", (_req: Request, res: Response) => {
   res.json(coordinator.getLatestEvaluation());
 });
 
+// Lightweight brain snapshot — runs MarketBrain + PoolBrain on default pool
+// so the dashboard shows live data even when monitoring is not active.
+app.get("/api/brains/snapshot", async (_req: Request, res: Response) => {
+  try {
+    const poolAddress =
+      config.pools["USDT/OKB"]?.address || "0x63d62734847E55A266FCa4219A9aD0a02D5F6e02";
+    const result = await coordinator.getBrainSnapshot(poolAddress);
+    res.json({
+      timestamp: Date.now(),
+      market: {
+        currentPrice: result.market.currentPrice,
+        priceChange1h: result.market.priceChange1h,
+        volatility: result.market.volatility,
+        marketState: result.market.marketState,
+      },
+      pool: {
+        token0Symbol: result.pool.token0Symbol,
+        token1Symbol: result.pool.token1Symbol,
+        feeAPR: result.pool.feeAPR,
+        tvl: result.pool.tvl,
+        currentTick: result.pool.currentTick,
+      },
+      risk: null, // No position ⇒ no risk assessment
+    });
+  } catch (err: any) {
+    console.error("[/api/brains/snapshot] error:", err?.message ?? err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/intent", async (req: Request, res: Response) => {
   try {
     const { input } = req.body;

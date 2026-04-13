@@ -10,19 +10,40 @@ export function ThreeBrainPanel() {
   const latest = useLatestEvaluation();
   const { state } = useAgentState();
   const [directFetch, setDirectFetch] = useState<EvaluationLite | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // If no evaluation from WebSocket yet, poll /api/latest every 5s
+  // If no evaluation from WebSocket yet, fetch a live brain snapshot
   useEffect(() => {
     if (latest) return; // Already have data from WS
     let cancelled = false;
-    const poll = () => {
-      api.latest().then((data) => {
-        if (!cancelled && data) setDirectFetch(data);
-      }).catch(() => {});
-    };
-    poll();
-    const timer = setInterval(poll, 5000);
-    return () => { cancelled = true; clearInterval(timer); };
+    setLoading(true);
+
+    // Try /api/latest first (fast, cached), then /api/brains/snapshot (live analysis)
+    api.latest().then((data) => {
+      if (!cancelled && data && data.market) {
+        setDirectFetch(data);
+        setLoading(false);
+      } else if (!cancelled) {
+        // No evaluation history — fetch live brain snapshot
+        api.brainsSnapshot().then((snap) => {
+          if (!cancelled) {
+            setDirectFetch(snap);
+            setLoading(false);
+          }
+        }).catch(() => { if (!cancelled) setLoading(false); });
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        api.brainsSnapshot().then((snap) => {
+          if (!cancelled) {
+            setDirectFetch(snap);
+            setLoading(false);
+          }
+        }).catch(() => { if (!cancelled) setLoading(false); });
+      }
+    });
+
+    return () => { cancelled = true; };
   }, [latest]);
 
   const data = latest || directFetch;
@@ -52,7 +73,7 @@ export function ThreeBrainPanel() {
             </div>
           </div>
         ) : (
-          <Skeleton label={state?.status === "monitoring" ? "Analyzing market…" : "Start monitoring to activate"} />
+          <Skeleton label={loading ? "Fetching live data…" : "Start monitoring to activate"} />
         )}
       </BrainCard>
 
@@ -77,7 +98,7 @@ export function ThreeBrainPanel() {
             <Stat label="Current Tick" value={data.pool.currentTick?.toString() || "—"} />
           </div>
         ) : (
-          <Skeleton label={state?.status === "monitoring" ? "Analyzing pool…" : "Start monitoring to activate"} />
+          <Skeleton label={loading ? "Fetching live data…" : "Start monitoring to activate"} />
         )}
       </BrainCard>
 
@@ -120,7 +141,7 @@ export function ThreeBrainPanel() {
             </div>
           </div>
         ) : (
-          <Skeleton label={state?.status === "monitoring" ? "Assessing risk…" : "No active position"} />
+          <Skeleton label={loading ? "Fetching live data…" : "No active position — deploy to assess risk"} />
         )}
       </BrainCard>
     </div>
