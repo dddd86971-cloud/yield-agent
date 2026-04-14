@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { api, V3PositionsResponse, V3PoolState } from "@/lib/api";
+import { useAgentState } from "@/lib/hooks";
+import { useAccount } from "wagmi";
+import { Lock } from "lucide-react";
 
 const POOL_ADDRESS = "0x63d62734847E55A266FCa4219A9aD0a02D5F6e02";
 
@@ -21,8 +24,17 @@ export function V3Positions() {
   const [pool, setPool] = useState<V3PoolState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { state } = useAgentState();
+  const { isConnected } = useAccount();
+
+  // Only fetch positions when user has an active strategy
+  const hasStrategy = state?.strategyId !== null && state?.strategyId !== undefined;
 
   useEffect(() => {
+    if (!hasStrategy) {
+      setLoading(false);
+      return;
+    }
     let active = true;
     async function load() {
       try {
@@ -47,7 +59,28 @@ export function V3Positions() {
       active = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [hasStrategy]);
+
+  // Gate: no strategy deployed yet
+  if (!hasStrategy) {
+    return (
+      <div className="rounded-xl bg-white/5 border border-white/10 p-6">
+        <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+          V3 LP Positions
+          <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-white/40 font-mono uppercase">
+            Your Positions
+          </span>
+        </h3>
+        <div className="text-center py-8">
+          <Lock className="w-8 h-8 text-white/20 mx-auto mb-3" />
+          <p className="text-white/40 text-sm mb-1">No active strategy</p>
+          <p className="text-white/30 text-xs">
+            Deploy a strategy above to mint a V3 LP position. Your positions will appear here.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -73,10 +106,10 @@ export function V3Positions() {
   return (
     <div className="rounded-xl bg-white/5 border border-white/10 p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white">
-          V3 LP Positions
-          <span className="ml-2 text-xs font-mono text-accent bg-accent/10 px-2 py-0.5 rounded">
-            REAL ON-CHAIN
+        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+          Your V3 LP Positions
+          <span className="text-xs font-mono text-accent bg-accent/10 px-2 py-0.5 rounded">
+            Strategy #{state?.strategyId}
           </span>
         </h3>
         <a
@@ -85,7 +118,7 @@ export function V3Positions() {
           rel="noopener noreferrer"
           className="text-xs text-accent hover:underline"
         >
-          Agent: {data?.agentAddress?.slice(0, 8)}...
+          Managed by: {data?.agentAddress?.slice(0, 8)}...
         </a>
       </div>
 

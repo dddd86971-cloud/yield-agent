@@ -10,6 +10,7 @@ import { DeployControls } from "@/components/DeployControls";
 import { AgentChat } from "@/components/AgentChat";
 import { V3Positions } from "@/components/V3Positions";
 import { DecisionLog } from "@/components/DecisionLog";
+import { StrategyMonitor } from "@/components/StrategyMonitor";
 import { useState } from "react";
 import { UserIntent } from "@/lib/api";
 import { useAgentState } from "@/lib/hooks";
@@ -44,6 +45,7 @@ export default function AppDashboardPage() {
           <div className="lg:col-span-2 space-y-6">
             <IntentInput onIntent={setIntent} />
             <DeployControls intent={intent} state={state} />
+            <StrategyMonitor />
             <V3Positions />
             <ThreeBrainPanel />
             <LPRangeChart />

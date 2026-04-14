@@ -268,23 +268,34 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
 
         {/* Deploy result — success banner */}
         {result && (
-          <div className="p-4 bg-accent/5 rounded-xl border border-accent/30 text-xs space-y-2">
-            <div className="flex items-center gap-2 text-accent font-bold text-sm">
-              <span className="w-6 h-6 bg-accent/20 rounded-full flex items-center justify-center text-accent">✓</span>
-              Strategy #{result.strategyId} Deployed Successfully
-              <span className="px-2 py-0.5 rounded bg-accent/20 text-[10px] uppercase tracking-wider">
+          <div className="p-4 bg-accent/5 rounded-xl border border-accent/30 text-xs space-y-3">
+            {/* Success header */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-accent/20 rounded-full flex items-center justify-center text-accent text-lg flex-shrink-0">
+                ✓
+              </div>
+              <div>
+                <div className="text-accent font-bold text-sm">
+                  Strategy #{result.strategyId} Deployed Successfully!
+                </div>
+                <div className="text-white/50 text-[11px]">
+                  Your V3 LP position is live on X Layer mainnet
+                </div>
+              </div>
+              <span className="ml-auto px-2 py-0.5 rounded bg-accent/20 text-accent text-[10px] uppercase tracking-wider font-bold flex-shrink-0">
                 {result.executionMode}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 gap-1.5 pl-8">
+            {/* TX links */}
+            <div className="grid grid-cols-1 gap-1.5 pl-[52px]">
               <a
                 href={`https://www.oklink.com/xlayer/tx/${result.txHash}`}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-1 font-mono text-white/70 hover:text-accent break-all"
               >
-                📋 Audit TX: {shortHash(result.txHash)}
+                Audit TX: {shortHash(result.txHash)}
                 <ExternalLink className="w-3 h-3 flex-shrink-0" />
               </a>
               {result.onchainTxHash && (
@@ -294,24 +305,43 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
                   rel="noreferrer"
                   className="flex items-center gap-1 font-mono text-white/70 hover:text-accent break-all"
                 >
-                  🔐 TEE Signed TX: {shortHash(result.onchainTxHash)}
+                  TEE Signed TX: {shortHash(result.onchainTxHash)}
                   <ExternalLink className="w-3 h-3 flex-shrink-0" />
                 </a>
               )}
               {result.investmentId && (
                 <div className="font-mono text-white/50">
-                  🆔 Investment: {result.investmentId}
+                  Investment ID: {result.investmentId}
                 </div>
               )}
             </div>
 
-            <div className="text-white/60 italic pt-1 pl-8 leading-relaxed border-t border-white/5 mt-2 pt-2">
+            {/* AI Reasoning */}
+            <div className="pl-[52px] text-white/60 italic leading-relaxed border-t border-white/5 pt-2">
               {result.reasoning}
             </div>
 
-            <div className="pl-8 pt-1 text-white/40">
-              ↓ Your new LP position will appear in the V3 LP Positions section below.
-              Start monitoring to let the three brains manage it automatically.
+            {/* What happens next */}
+            <div className="pl-[52px] p-3 rounded-lg bg-bg border border-bg-border">
+              <div className="text-white/70 font-bold text-[11px] mb-1.5">What happens next?</div>
+              <ul className="text-[11px] text-white/50 space-y-1 leading-relaxed">
+                <li className="flex items-start gap-1.5">
+                  <span className="text-accent mt-0.5">1.</span>
+                  Your LP position appears in &quot;Your V3 LP Positions&quot; below
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="text-accent mt-0.5">2.</span>
+                  Click &quot;Start Monitor&quot; — the AI will check every 5 min
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="text-accent mt-0.5">3.</span>
+                  Three brains auto-manage: rebalance when out of range, collect fees every 6h
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="text-accent mt-0.5">4.</span>
+                  All decisions are logged on-chain — check the Decision Log anytime
+                </li>
+              </ul>
             </div>
           </div>
         )}
