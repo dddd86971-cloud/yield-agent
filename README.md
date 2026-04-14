@@ -14,12 +14,12 @@ Built for **OKX Build X AI Hackathon — Season 2**, X Layer Arena Track.
 
 ---
 
-## 📖 项目简介 | Project Introduction
+## 📖 Project Introduction
 
-YieldAgent is an **autonomous AI liquidity strategist** that manages Uniswap V3 concentrated-liquidity positions on X Layer. A user describes their intent in one sentence (Chinese or English); the AI parses it, runs three parallel analysis brains (Market · Pool · Risk), deploys a real V3 LP position via the OnchainOS Agentic Wallet TEE, and continuously monitors/rebalances — all without human intervention.
+YieldAgent is an **autonomous AI liquidity strategist** that manages Uniswap V3 concentrated-liquidity positions on X Layer. A user describes their intent in one sentence; the AI parses it, runs three parallel analysis brains (Market · Pool · Risk), deploys a real V3 LP position via the OnchainOS Agentic Wallet TEE, and continuously monitors/rebalances — all without human intervention.
 
 **Core Value Proposition:**
-- **One-sentence deploy**: "帮我用100 USDT做LP，保守一点" → real V3 NFT minted on X Layer
+- **One-sentence deploy**: "Deploy 100 USDT as LP, conservative" → real V3 NFT minted on X Layer
 - **Three-Brain AI**: Market + Pool + Risk brains evaluate every 5 minutes
 - **TEE-signed execution**: All DEX transactions signed inside OnchainOS Agentic Wallet (ERC-4337)
 - **On-chain audit trail**: Every AI decision (including "do nothing") is recorded on-chain via `DecisionLogger`
@@ -29,7 +29,7 @@ YieldAgent is an **autonomous AI liquidity strategist** that manages Uniswap V3 
 
 ---
 
-## 🏗️ 架构概述 | Architecture Overview
+## 🏗️ Architecture Overview
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -74,7 +74,7 @@ This split-key design means a judge can cross-reference `StrategyManager.getExec
 
 ---
 
-## 📍 部署地址 | Deployment Addresses
+## 📍 Deployment Addresses
 
 ### Smart Contracts (X Layer Mainnet, Chain ID: 196)
 
@@ -128,7 +128,7 @@ cast call 0x315e413a11ab0df498ef83873012430ca36638ae \
 
 ---
 
-## 🔧 OnchainOS Skill 使用情况 | OnchainOS & Uniswap Skill Usage
+## 🔧 OnchainOS & Uniswap Skill Usage
 
 ### OnchainOS Core Modules Used
 
@@ -181,13 +181,13 @@ Both official Uniswap AI Skills are ported verbatim into the agent and invoked o
 
 ---
 
-## ⚙️ 运作机制 | Operating Mechanism
+## ⚙️ Operating Mechanism
 
 ### End-to-End Strategy Lifecycle
 
 ```
-1. 用户输入 / User Input
-   "帮我用100 USDT在OKB池子里做LP，保守一点"
+1. User Input
+   "Deploy 100 USDT as LP in OKB pool, conservative"
                     ↓
 2. IntentParser (GPT-4o-mini)
    → { principal: 100, riskProfile: "conservative", preferredPairs: ["USDT/OKB"] }
@@ -309,7 +309,7 @@ cd frontend && npm run test:e2e       # 17 Playwright tests
 
 ---
 
-## 👥 团队成员 | Team Members
+## 👥 Team Members
 
 **Solo developer** — responsible for all aspects of the project:
 - Solidity smart contract development (DecisionLogger, StrategyManager, FollowVault)
@@ -336,7 +336,7 @@ YieldAgent runs a **single AgentCoordinator** process that manages multiple stra
 
 ---
 
-## 🌐 X Layer 生态定位 | Positioning in X Layer Ecosystem
+## 🌐 Positioning in X Layer Ecosystem
 
 ### Why X Layer is Essential for YieldAgent
 
