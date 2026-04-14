@@ -329,8 +329,7 @@ export class V3PositionManager {
    */
   async ensureApproval(tokenAddress: string, amount: bigint): Promise<boolean> {
     const token = new ethers.Contract(tokenAddress, ERC20_ABI, this.wallet);
-    // Check allowance for the SIGNER (msg.sender), not the agentAddress
-    const currentAllowance: bigint = await token.allowance(this.signerAddress, this.npmAddress);
+    const currentAllowance: bigint = await token.allowance(this.agentAddress, this.npmAddress);
 
     if (currentAllowance >= amount) {
       console.log(`[V3PositionManager] Token ${tokenAddress} already approved (${currentAllowance} >= ${amount})`);
@@ -384,13 +383,9 @@ export class V3PositionManager {
       amount1Desired: params.amount1Desired,
       amount0Min,
       amount1Min,
-      // recipient: for direct signing, NFT goes to the signer (msg.sender must hold tokens)
-      // For TEE path, deployLPViaTEE handles recipient separately
-      recipient: this.signerAddress,
+      recipient: this.agentAddress,
       deadline,
     };
-
-    console.log(`  recipient=${mintParams.recipient} (signer), agentAddress=${this.agentAddress}`);
 
     const tx = await this.npm.mint(mintParams, { gasLimit: 600_000 });
     const receipt = await tx.wait();
@@ -735,24 +730,23 @@ export class V3PositionManager {
 
     onProgress?.(`Need token0=${optimal.amount0} (${optimal.token0Share.toFixed(0)}%), token1=${optimal.amount1} (${optimal.token1Share.toFixed(0)}%)`);
 
-    // Check balances of the SIGNING wallet (Audit EOA), since this method signs directly
-    const signer = this.signerAddress;
+    // Check balances of the agent wallet (Agentic Wallet if configured)
     const [info0, info1] = await Promise.all([
-      this.getBalance(poolState.token0, signer),
-      this.getBalance(poolState.token1, signer),
+      this.getBalance(poolState.token0),
+      this.getBalance(poolState.token1),
     ]);
 
-    onProgress?.(`Signer ${signer.slice(0, 10)}...: ${info0.symbol}=${ethers.formatUnits(info0.balance, info0.decimals)}, ${info1.symbol}=${ethers.formatUnits(info1.balance, info1.decimals)}`);
+    onProgress?.(`Wallet ${this.agentAddress.slice(0, 10)}...: ${info0.symbol}=${ethers.formatUnits(info0.balance, info0.decimals)}, ${info1.symbol}=${ethers.formatUnits(info1.balance, info1.decimals)}`);
 
     // Use the smaller of desired vs available
     const amount0 = optimal.amount0 < info0.balance ? optimal.amount0 : info0.balance;
     const amount1 = optimal.amount1 < info1.balance ? optimal.amount1 : info1.balance;
 
-    // Guard: reject if both zero OR if amounts produce negligible liquidity
+    // Guard: reject if both zero OR if amounts are too small for viable liquidity
     const MIN_AMOUNT_0 = 10n ** BigInt(Math.max(0, info0.decimals - 2)); // e.g. 0.01 USDT
     const MIN_AMOUNT_1 = 10n ** BigInt(Math.max(0, info1.decimals - 4)); // e.g. 0.0001 WOKB
     if (amount0 < MIN_AMOUNT_0 && amount1 < MIN_AMOUNT_1) {
-      console.error(`[V3PositionManager] Insufficient funds — signer ${signer} has amount0=${amount0}, amount1=${amount1} (below minimum)`);
+      console.error(`[V3PositionManager] Insufficient funds — wallet has amount0=${amount0}, amount1=${amount1} (below minimum)`);
       return null;
     }
 

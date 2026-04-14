@@ -523,6 +523,13 @@ export class AgentCoordinator {
     // This is the anti-gaming path: every tx signed inside TEE, attributable
     // to OnchainOS. Requires Agentic Wallet to be configured and funded.
     if (this.v3pm?.agenticWalletAddress) {
+      // --- Auto-swap: convert native OKB → USDT + WOKB if wallet lacks ERC-20 tokens ---
+      try {
+        await this.ensureAgenticWalletFunded(poolAddress, pool, intent.principal, onProgress);
+      } catch (swapErr: any) {
+        console.warn("[AgentCoordinator] Auto-swap failed, continuing with existing balances:", swapErr?.message);
+      }
+
       try {
         onProgress?.({ type: "status", content: "Minting V3 LP via OnchainOS Agentic Wallet (TEE)..." });
         const mainRange = pool.recommendedRanges[0];
@@ -1536,6 +1543,111 @@ Generate reasoning (max 200 chars):`,
    * The `investmentId` is still resolved (best-effort) for audit trail so
    * the decision can be cross-referenced to the OnchainOS product in logs.
    */
+
+  // ── Auto-swap: ensure Agentic Wallet has USDT + WOKB before LP mint ──────
+  /**
+   * Checks if the Agentic Wallet has enough ERC-20 tokens for LP.
+   * If not, swaps native OKB → USDT and OKB → WOKB via OnchainOS TEE.
+   *
+   * Splits the available OKB (minus gas buffer) roughly 50/50 into each side.
+   * This is called before deployLPViaTEE() so the wallet has tokens to mint with.
+   */
+  private async ensureAgenticWalletFunded(
+    poolAddress: string,
+    pool: PoolAnalysis,
+    principalUSD: number,
+    onProgress?: (msg: any) => void,
+  ): Promise<void> {
+    if (!this.v3pm?.agenticWalletAddress || !this.onchainos) return;
+
+    const walletAddr = this.v3pm.agenticWalletAddress;
+    const { ethers } = await import("ethers");
+    const provider = this.v3pm["provider"] as import("ethers").Provider;
+
+    // Check ERC-20 balances of the Agentic Wallet
+    const ERC20_MINI = ["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)"];
+    const token0Contract = new ethers.Contract(pool.token0, ERC20_MINI, provider);
+    const token1Contract = new ethers.Contract(pool.token1, ERC20_MINI, provider);
+    const [bal0, bal1, dec0, dec1] = await Promise.all([
+      token0Contract.balanceOf(walletAddr),
+      token1Contract.balanceOf(walletAddr),
+      token0Contract.decimals(),
+      token1Contract.decimals(),
+    ]);
+
+    const bal0Human = Number(bal0) / 10 ** Number(dec0);
+    const bal1Human = Number(bal1) / 10 ** Number(dec1);
+
+    console.log(`[AutoSwap] Agentic Wallet ${walletAddr.slice(0, 10)}... balances: token0=${bal0Human}, token1=${bal1Human}`);
+
+    // If wallet already has both tokens, skip
+    if (bal0 > 0n && bal1 > 0n) {
+      console.log("[AutoSwap] Wallet already funded with both tokens — skipping auto-swap");
+      return;
+    }
+
+    // Check native OKB balance
+    const nativeBalance = await provider.getBalance(walletAddr);
+    const gasBuffer = ethers.parseEther(config.agent.gasBufferOKB);
+    const swappableOKB = nativeBalance > gasBuffer ? nativeBalance - gasBuffer : 0n;
+
+    if (swappableOKB === 0n) {
+      console.warn("[AutoSwap] No swappable OKB (balance below gas buffer) — skipping");
+      return;
+    }
+
+    const swappableOKBHuman = Number(ethers.formatEther(swappableOKB));
+    console.log(`[AutoSwap] Native OKB: ${ethers.formatEther(nativeBalance)}, swappable: ${swappableOKBHuman.toFixed(6)} (after ${config.agent.gasBufferOKB} gas buffer)`);
+
+    // Split 50/50: half → USDT (token0), half → WOKB (token1)
+    const halfOKB = swappableOKBHuman / 2;
+    const nativeAddr = config.onchainos.nativeTokenAddress;
+
+    // Swap 1: OKB → USDT (if wallet has no USDT)
+    if (bal0 === 0n && halfOKB > 0.001) {
+      try {
+        onProgress?.({ type: "status", content: `Auto-swap: ${halfOKB.toFixed(4)} OKB → USDT...` });
+        console.log(`[AutoSwap] Swapping ${halfOKB.toFixed(6)} native OKB → USDT`);
+        const swapResult = await this.onchainos.swap({
+          fromToken: nativeAddr,
+          toToken: pool.token0, // USDT
+          wallet: walletAddr,
+          readableAmount: halfOKB.toFixed(6),
+          slippage: "1.0",
+        });
+        console.log(`[AutoSwap] OKB→USDT done: ${swapResult.swapTxHash}`);
+        onProgress?.({ type: "status", content: `Auto-swap OKB→USDT complete: ${swapResult.swapTxHash.slice(0, 18)}...` });
+      } catch (err: any) {
+        console.error("[AutoSwap] OKB→USDT swap failed:", err?.message);
+        onProgress?.({ type: "status", content: `Auto-swap OKB→USDT failed: ${err?.message}` });
+      }
+    }
+
+    // Swap 2: OKB → WOKB (if wallet has no WOKB)
+    if (bal1 === 0n && halfOKB > 0.001) {
+      try {
+        onProgress?.({ type: "status", content: `Auto-swap: ${halfOKB.toFixed(4)} OKB → WOKB...` });
+        console.log(`[AutoSwap] Swapping ${halfOKB.toFixed(6)} native OKB → WOKB`);
+        const swapResult = await this.onchainos.swap({
+          fromToken: nativeAddr,
+          toToken: pool.token1, // WOKB
+          wallet: walletAddr,
+          readableAmount: halfOKB.toFixed(6),
+          slippage: "1.0",
+        });
+        console.log(`[AutoSwap] OKB→WOKB done: ${swapResult.swapTxHash}`);
+        onProgress?.({ type: "status", content: `Auto-swap OKB→WOKB complete: ${swapResult.swapTxHash.slice(0, 18)}...` });
+      } catch (err: any) {
+        console.error("[AutoSwap] OKB→WOKB swap failed:", err?.message);
+        onProgress?.({ type: "status", content: `Auto-swap OKB→WOKB failed: ${err?.message}` });
+      }
+    }
+
+    // Brief pause for tx finality before mint
+    await new Promise((r) => setTimeout(r, 2000));
+    console.log("[AutoSwap] Pre-mint token preparation complete");
+  }
+
   private async depositViaOnchainOS(
     pool: PoolAnalysis,
     intent: UserIntent
