@@ -5,6 +5,7 @@ import { api, V3PositionsResponse, V3PoolState } from "@/lib/api";
 import { useAgentState } from "@/lib/hooks";
 import { useAccount } from "wagmi";
 import { Lock } from "lucide-react";
+import { ownsStrategy } from "@/lib/strategyOwnership";
 
 const POOL_ADDRESS = "0x63d62734847E55A266FCa4219A9aD0a02D5F6e02";
 
@@ -29,8 +30,10 @@ export function V3Positions() {
 
   // Gate 1: wallet must be connected
   // Gate 2: user must have deployed a strategy (strategyId exists in agent state)
+  // Gate 3: connected wallet must be the one that deployed this strategy
   const hasStrategy = state?.strategyId !== null && state?.strategyId !== undefined;
-  const canView = isConnected && hasStrategy;
+  const isOwner = isConnected && address && hasStrategy && ownsStrategy(address, state!.strategyId!);
+  const canView = isOwner;
 
   useEffect(() => {
     if (!canView) {

@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import { api, AgentState, UserIntent } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useAccount } from "wagmi";
+import { recordDeployment } from "@/lib/strategyOwnership";
 
 // Mainnet strategyId 0 pool — pre-filled default. Provenance: SUBMISSION.md
 // "Live strategy on mainnet" (USDT/OKB 0.3%). Users can paste another pool
@@ -50,6 +52,7 @@ type DeployResult = {
 };
 
 export function DeployControls({ intent, state }: DeployControlsProps) {
+  const { address } = useAccount();
   const [poolAddress, setPoolAddress] = useState(DEFAULT_POOL_ADDRESS);
   const [confirming, setConfirming] = useState(false);
   const [deploying, setDeploying] = useState(false);
@@ -90,6 +93,10 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
         executionMode: res.executionMode,
         reasoning: res.reasoning,
       });
+      // Record ownership: this wallet deployed this strategy
+      if (address) {
+        recordDeployment(address, res.strategyId);
+      }
     } catch (err: any) {
       setError(err?.message ?? "Deploy failed");
     } finally {

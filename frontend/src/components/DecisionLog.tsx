@@ -13,6 +13,7 @@ import {
   Lock,
 } from "lucide-react";
 import { useAccount } from "wagmi";
+import { ownsStrategy } from "@/lib/strategyOwnership";
 
 const ACTION_ICONS: Record<string, any> = {
   hold: Pause,
@@ -23,12 +24,13 @@ const ACTION_ICONS: Record<string, any> = {
 };
 
 export function DecisionLog({ limit = 10 }: { limit?: number }) {
-  const { history } = useAgentState();
-  const { isConnected } = useAccount();
+  const { history, state } = useAgentState();
+  const { isConnected, address } = useAccount();
   const decisions = [...history].reverse().slice(0, limit);
 
-  // Gate: wallet not connected — don't show other users' decision history
-  if (!isConnected) {
+  // Gate: wallet not connected OR not the strategy deployer
+  const isOwner = isConnected && address && state?.strategyId != null && ownsStrategy(address, state.strategyId);
+  if (!isConnected || !isOwner) {
     return (
       <div className="card">
         <div className="flex items-center gap-3 mb-4">
