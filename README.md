@@ -72,6 +72,43 @@ YieldAgent is an **autonomous AI liquidity strategist** that manages Uniswap V3 
 
 This split-key design means a judge can cross-reference `StrategyManager.getExecutions(strategyId)` against the Agentic Wallet's on-chain activity — the tx hashes must match 1:1, because the audit signer physically cannot fabricate DEX transactions.
 
+### Multi-User Scaling: Bring Your Own Agentic Wallet
+
+The current demo runs a **single-agent architecture** — one Agentic Wallet manages all LP positions. In production, each user deploys their own agent instance with their own Agentic Wallet:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Current Demo (Hackathon)                    │
+│                                                               │
+│   All users ──→ Shared Agent Backend ──→ One Agentic Wallet  │
+│                                          0x6ab27b82...       │
+│   LP NFTs owned by agent wallet, users observe via frontend  │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                Production Vision (Multi-Tenant)               │
+│                                                               │
+│   User A ──→ Own Agent Instance ──→ Agentic Wallet A         │
+│              (.env: own API keys)    LP NFTs owned by User A  │
+│                                                               │
+│   User B ──→ Own Agent Instance ──→ Agentic Wallet B         │
+│              (.env: own API keys)    LP NFTs owned by User B  │
+│                                                               │
+│   Each user's LP is fully isolated and self-custodied         │
+│   via their own OnchainOS TEE signer                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**How to deploy your own agent:**
+
+1. Create your Agentic Wallet: `onchainos wallet login --force`
+2. Get API keys from [OnchainOS Dev Portal](https://web3.okx.com/onchainos/dev-portal)
+3. Clone this repo, fill `.env` with your own keys
+4. Fund your Agentic Wallet with USDT + OKB on X Layer
+5. Run `cd agent && npm start` — your LP positions belong to your wallet
+
+The architecture is fully replicable — each instance is self-contained and requires zero code changes.
+
 ---
 
 ## 📍 Deployment Addresses

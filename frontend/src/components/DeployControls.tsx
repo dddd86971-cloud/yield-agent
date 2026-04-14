@@ -26,6 +26,7 @@ import {
   Loader2,
   ExternalLink,
   AlertTriangle,
+  Info,
 } from "lucide-react";
 import { api, AgentState, UserIntent } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -354,6 +355,33 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
         )}
 
         {error && <div className="text-xs text-danger break-words">{error}</div>}
+
+        {/* Agentic Wallet explanation */}
+        <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-xs space-y-2">
+          <div className="flex items-center gap-2 text-white/60 font-bold">
+            <Info className="w-3.5 h-3.5 text-accent" />
+            How does this work?
+          </div>
+          <div className="text-white/40 leading-relaxed">
+            LP positions are deployed and managed by the{" "}
+            <span className="text-accent font-mono">Agentic Wallet</span> (OnchainOS TEE signer), not your
+            browser wallet. Your connected wallet is used for identity only — no funds leave your wallet.
+          </div>
+          <div className="text-white/40 leading-relaxed">
+            <span className="text-white/50 font-bold">Want your own agent?</span>{" "}
+            Create your own Agentic Wallet via{" "}
+            <a
+              href="https://web3.okx.com/onchainos/dev-portal"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent hover:text-accent-dim underline"
+            >
+              OnchainOS Dev Portal
+            </a>
+            , clone the repo, fill in your API keys, and run your own instance. Each agent is fully
+            self-contained — your LP positions belong to your own TEE wallet.
+          </div>
+        </div>
       </div>
     </div>
   );
