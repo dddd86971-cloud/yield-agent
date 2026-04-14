@@ -18,7 +18,7 @@
  * consuming mainnet funds while still exposing the full end-to-end path.
  */
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Rocket,
   Play,
@@ -27,11 +27,29 @@ import {
   ExternalLink,
   AlertTriangle,
   Info,
+  CheckCircle2,
+  Circle,
+  Brain,
+  FileText,
+  Shield,
+  Coins,
+  ClipboardCheck,
 } from "lucide-react";
 import { api, AgentState, UserIntent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAccount } from "wagmi";
 import { recordDeployment } from "@/lib/strategyOwnership";
+
+// ── Deploy Pipeline Steps ──
+const DEPLOY_STEPS = [
+  { id: "analyze", label: "Three-Brain Analysis", desc: "Market + Pool + Risk evaluation", icon: Brain, duration: 2500 },
+  { id: "register", label: "Register Strategy On-chain", desc: "StrategyManager.deployStrategy()", icon: FileText, duration: 2000 },
+  { id: "approve", label: "Approve Tokens via TEE", desc: "onchainos wallet contract-call → ERC20.approve", icon: Shield, duration: 2500 },
+  { id: "mint", label: "Mint V3 LP Position", desc: "onchainos wallet contract-call → NPM.mint()", icon: Coins, duration: 3000 },
+  { id: "audit", label: "Finalize Audit Record", desc: "DecisionLogger.logDecision()", icon: ClipboardCheck, duration: 1500 },
+] as const;
+
+type StepStatus = "pending" | "active" | "done" | "error";
 
 // Mainnet strategyId 0 pool — pre-filled default. Provenance: SUBMISSION.md
 // "Live strategy on mainnet" (USDT/OKB 0.3%). Users can paste another pool
@@ -60,6 +78,9 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
   const [monitorBusy, setMonitorBusy] = useState(false);
   const [result, setResult] = useState<DeployResult | null>(null);
   const [error, setError] = useState("");
+  const [stepStatuses, setStepStatuses] = useState<StepStatus[]>(DEPLOY_STEPS.map(() => "pending"));
+  const stepTimers = useRef<NodeJS.Timeout[]>([]);
+  const deployDone = useRef(false);
 
   const isMonitoring =
     state?.status === "monitoring" || state?.status === "rebalancing";
@@ -82,13 +103,62 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
     setConfirming(true);
   };
 
+  // Advance stepper steps on timers
+  const startStepProgress = () => {
+    deployDone.current = false;
+    const statuses: StepStatus[] = DEPLOY_STEPS.map(() => "pending");
+    statuses[0] = "active";
+    setStepStatuses([...statuses]);
+
+    let cumulative = 0;
+    stepTimers.current = [];
+    for (let i = 0; i < DEPLOY_STEPS.length; i++) {
+      cumulative += DEPLOY_STEPS[i].duration;
+      const timer = setTimeout(() => {
+        if (deployDone.current) return;
+        setStepStatuses((prev) => {
+          const next = [...prev];
+          next[i] = "done";
+          if (i + 1 < DEPLOY_STEPS.length) next[i + 1] = "active";
+          return next;
+        });
+      }, cumulative);
+      stepTimers.current.push(timer);
+    }
+  };
+
+  const finishAllSteps = (isError = false) => {
+    deployDone.current = true;
+    stepTimers.current.forEach(clearTimeout);
+    stepTimers.current = [];
+    if (isError) {
+      setStepStatuses((prev) => {
+        const next = [...prev];
+        const activeIdx = next.findIndex((s) => s === "active");
+        if (activeIdx >= 0) next[activeIdx] = "error";
+        return next;
+      });
+    } else {
+      setStepStatuses(DEPLOY_STEPS.map(() => "done"));
+    }
+  };
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => stepTimers.current.forEach(clearTimeout);
+  }, []);
+
   const confirmDeploy = async () => {
     if (!intent) return;
     setConfirming(false);
     setDeploying(true);
     setError("");
+    setResult(null);
+    startStepProgress();
+
     try {
       const res = await api.deploy(poolAddress.trim(), intent);
+      finishAllSteps(false);
       setResult({
         strategyId: res.strategyId,
         txHash: res.txHash,
@@ -97,11 +167,11 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
         executionMode: res.executionMode,
         reasoning: res.reasoning,
       });
-      // Record ownership: this wallet deployed this strategy
       if (address) {
         recordDeployment(address, res.strategyId);
       }
     } catch (err: any) {
+      finishAllSteps(true);
       setError(err?.message ?? "Deploy failed");
     } finally {
       setDeploying(false);
@@ -279,6 +349,83 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Deploy Pipeline Stepper */}
+        {deploying && (
+          <div className="p-4 rounded-xl bg-bg border border-accent/30 space-y-0">
+            <div className="flex items-center gap-2 text-accent font-bold text-sm mb-4">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Deploying Strategy...
+            </div>
+            <div className="relative pl-5">
+              {DEPLOY_STEPS.map((step, i) => {
+                const status = stepStatuses[i];
+                const StepIcon = step.icon;
+                const isLast = i === DEPLOY_STEPS.length - 1;
+                return (
+                  <div key={step.id} className="relative flex gap-3 pb-5">
+                    {/* Vertical line */}
+                    {!isLast && (
+                      <div
+                        className={cn(
+                          "absolute left-[11px] top-[28px] w-0.5 h-[calc(100%-16px)]",
+                          status === "done" ? "bg-accent/50" : "bg-white/10"
+                        )}
+                      />
+                    )}
+                    {/* Step dot */}
+                    <div className="flex-shrink-0 relative z-10">
+                      {status === "done" ? (
+                        <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center">
+                          <CheckCircle2 className="w-4 h-4 text-accent" />
+                        </div>
+                      ) : status === "active" ? (
+                        <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center animate-pulse">
+                          <Loader2 className="w-4 h-4 text-accent animate-spin" />
+                        </div>
+                      ) : status === "error" ? (
+                        <div className="w-6 h-6 rounded-full bg-danger/20 flex items-center justify-center">
+                          <AlertTriangle className="w-4 h-4 text-danger" />
+                        </div>
+                      ) : (
+                        <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center">
+                          <Circle className="w-3 h-3 text-white/20" />
+                        </div>
+                      )}
+                    </div>
+                    {/* Step content */}
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <div className="flex items-center gap-2">
+                        <StepIcon
+                          className={cn(
+                            "w-3.5 h-3.5",
+                            status === "done" ? "text-accent" : status === "active" ? "text-accent" : status === "error" ? "text-danger" : "text-white/20"
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "text-xs font-bold",
+                            status === "done" ? "text-accent" : status === "active" ? "text-white" : status === "error" ? "text-danger" : "text-white/30"
+                          )}
+                        >
+                          {step.label}
+                        </span>
+                      </div>
+                      <div
+                        className={cn(
+                          "text-[10px] font-mono mt-0.5 ml-5.5",
+                          status === "active" ? "text-white/50" : status === "done" ? "text-accent/50" : "text-white/15"
+                        )}
+                      >
+                        {step.desc}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
