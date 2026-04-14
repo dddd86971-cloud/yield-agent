@@ -25,13 +25,15 @@ export function V3Positions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { state } = useAgentState();
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
 
-  // Only fetch positions when user has an active strategy
+  // Gate 1: wallet must be connected
+  // Gate 2: user must have deployed a strategy (strategyId exists in agent state)
   const hasStrategy = state?.strategyId !== null && state?.strategyId !== undefined;
+  const canView = isConnected && hasStrategy;
 
   useEffect(() => {
-    if (!hasStrategy) {
+    if (!canView) {
       setLoading(false);
       return;
     }
@@ -54,21 +56,42 @@ export function V3Positions() {
       }
     }
     load();
-    const interval = setInterval(load, 30_000); // refresh every 30s
+    const interval = setInterval(load, 30_000);
     return () => {
       active = false;
       clearInterval(interval);
     };
-  }, [hasStrategy]);
+  }, [canView]);
 
-  // Gate: no strategy deployed yet
+  // Gate: wallet not connected
+  if (!isConnected) {
+    return (
+      <div className="rounded-xl bg-white/5 border border-white/10 p-6">
+        <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+          V3 LP Positions
+          <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-white/40 font-mono uppercase">
+            Private
+          </span>
+        </h3>
+        <div className="text-center py-8">
+          <Lock className="w-8 h-8 text-white/20 mx-auto mb-3" />
+          <p className="text-white/40 text-sm mb-1">Connect wallet to view your positions</p>
+          <p className="text-white/30 text-xs">
+            Each user can only see LP positions they deployed. Connect your wallet to get started.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Gate: wallet connected but no strategy deployed
   if (!hasStrategy) {
     return (
       <div className="rounded-xl bg-white/5 border border-white/10 p-6">
         <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
           V3 LP Positions
           <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-white/40 font-mono uppercase">
-            Your Positions
+            {address?.slice(0, 6)}...{address?.slice(-4)}
           </span>
         </h3>
         <div className="text-center py-8">
@@ -76,6 +99,8 @@ export function V3Positions() {
           <p className="text-white/40 text-sm mb-1">No active strategy</p>
           <p className="text-white/30 text-xs">
             Deploy a strategy above to mint a V3 LP position. Your positions will appear here.
+            <br />
+            Other users&apos; positions are only visible on the Agent Leaderboard.
           </p>
         </div>
       </div>

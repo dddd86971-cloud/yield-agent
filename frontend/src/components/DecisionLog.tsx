@@ -10,7 +10,9 @@ import {
   AlertTriangle,
   Rocket,
   ExternalLink,
+  Lock,
 } from "lucide-react";
+import { useAccount } from "wagmi";
 
 const ACTION_ICONS: Record<string, any> = {
   hold: Pause,
@@ -22,7 +24,31 @@ const ACTION_ICONS: Record<string, any> = {
 
 export function DecisionLog({ limit = 10 }: { limit?: number }) {
   const { history } = useAgentState();
+  const { isConnected } = useAccount();
   const decisions = [...history].reverse().slice(0, limit);
+
+  // Gate: wallet not connected — don't show other users' decision history
+  if (!isConnected) {
+    return (
+      <div className="card">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-white/10 text-white/30 flex items-center justify-center">
+            <Activity className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="font-bold">Decision History</div>
+            <div className="text-xs text-white/40">Connect wallet to view your strategy decisions</div>
+          </div>
+        </div>
+        <div className="text-center py-6">
+          <Lock className="w-6 h-6 text-white/15 mx-auto mb-2" />
+          <p className="text-white/30 text-xs">
+            Your AI decisions will appear here after you connect your wallet and deploy a strategy.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="card">

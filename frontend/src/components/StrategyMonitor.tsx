@@ -16,6 +16,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useAccount } from "wagmi";
 
 const ACTION_CONFIG: Record<
   string,
@@ -31,6 +32,7 @@ const ACTION_CONFIG: Record<
 export function StrategyMonitor() {
   const { state, history, connected } = useAgentState();
   const latest = useLatestEvaluation();
+  const { isConnected } = useAccount();
   const [nextEvalSec, setNextEvalSec] = useState<number | null>(null);
 
   // Countdown to next evaluation
@@ -50,8 +52,8 @@ export function StrategyMonitor() {
     return () => clearInterval(id);
   }, [state?.status, state?.lastEvaluation]);
 
-  // Don't render if no strategy
-  if (!state || state.strategyId === null) return null;
+  // Don't render if wallet not connected or no strategy
+  if (!isConnected || !state || state.strategyId === null) return null;
 
   const isMonitoring = state.status === "monitoring" || state.status === "analyzing" || state.status === "rebalancing";
   const recentDecisions = [...history].reverse().slice(0, 5);
