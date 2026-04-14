@@ -83,6 +83,7 @@ export default function FollowPage() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("decisions");
   const [filterPool, setFilterPool] = useState<FilterPool>("all");
+  const [showInactive, setShowInactive] = useState(false);
   const [page, setPage] = useState(0);
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyInfo | null>(null);
   const [followAmount, setFollowAmount] = useState("");
@@ -120,8 +121,16 @@ export default function FollowPage() {
   }, []);
 
   // ---- Filtering + Sorting + Pagination ----
+
+  // A strategy is "active" if it has more than 1 decision (not just a single deploy)
+  const activeStrategies = useMemo(
+    () => strategies.filter((s) => s.decisionCount > 1),
+    [strategies]
+  );
+  const inactiveCount = strategies.length - activeStrategies.length;
+
   const filtered = useMemo(() => {
-    let list = [...strategies];
+    let list = showInactive ? [...strategies] : [...activeStrategies];
 
     // Search
     if (search.trim()) {
@@ -155,7 +164,7 @@ export default function FollowPage() {
     }
 
     return list;
-  }, [strategies, search, sortBy, filterPool]);
+  }, [strategies, activeStrategies, showInactive, search, sortBy, filterPool]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -265,8 +274,8 @@ export default function FollowPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
             label="Active Strategies"
-            value={loading ? null : String(strategies.length)}
-            sub="on-chain"
+            value={loading ? null : String(activeStrategies.length)}
+            sub={`${strategies.length} total on-chain`}
           />
           <StatCard
             label="Total Decisions"
@@ -350,6 +359,21 @@ export default function FollowPage() {
                 <option value="recent">Most Recent</option>
                 <option value="id">Newest Strategy</option>
               </select>
+
+              {/* Show inactive toggle */}
+              {inactiveCount > 0 && (
+                <button
+                  onClick={() => { setShowInactive((v) => !v); setPage(0); }}
+                  className={cn(
+                    "px-2.5 py-1.5 text-xs rounded-lg border transition-colors",
+                    showInactive
+                      ? "bg-white/10 border-white/20 text-white/70"
+                      : "bg-bg border-bg-border text-white/40 hover:text-white/60"
+                  )}
+                >
+                  {showInactive ? `Hide ${inactiveCount} inactive` : `+${inactiveCount} inactive`}
+                </button>
+              )}
             </div>
           </div>
 
@@ -379,13 +403,16 @@ export default function FollowPage() {
             <div className="space-y-3">
               {paged.map((s, idx) => {
                 const rank = page * PAGE_SIZE + idx + 1;
-                const isTop3 = rank <= 3 && sortBy === "decisions" && !search && filterPool === "all";
+                const isTop3 = rank <= 3 && sortBy === "decisions" && !search && filterPool === "all" && !showInactive;
+                const isInactive = s.decisionCount <= 1;
                 return (
                   <div
                     key={s.strategyId}
                     className={cn(
                       "p-4 md:p-5 rounded-xl bg-bg border transition-colors",
-                      isTop3
+                      isInactive
+                        ? "border-white/5 opacity-50"
+                        : isTop3
                         ? "border-accent/30 bg-accent/5"
                         : "border-bg-border hover:border-white/20"
                     )}
@@ -395,7 +422,9 @@ export default function FollowPage() {
                       <div
                         className={cn(
                           "w-11 h-11 rounded-xl flex items-center justify-center font-bold font-mono text-base flex-shrink-0",
-                          isTop3
+                          isInactive
+                            ? "bg-white/5 text-white/30"
+                            : isTop3
                             ? "bg-accent/20 text-accent"
                             : "bg-white/5 text-white/50"
                         )}
@@ -410,7 +439,12 @@ export default function FollowPage() {
                         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                           <span className="font-bold text-sm">Strategy #{s.strategyId}</span>
                           <span className="badge-neutral text-[10px]">{s.pool}</span>
-                          {isTop3 && rank === 1 && (
+                          {isInactive && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-white/40 font-bold">
+                              INACTIVE
+                            </span>
+                          )}
+                          {!isInactive && isTop3 && rank === 1 && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-bold">
                               TOP
                             </span>

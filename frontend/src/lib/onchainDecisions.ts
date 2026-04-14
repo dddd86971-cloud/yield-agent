@@ -196,7 +196,10 @@ interface RawDecision {
  * the `TOKENS` table in `contracts.ts`.
  */
 export function poolLabelForStrategy(strategyId: bigint): string {
-  if (strategyId === 0n || strategyId === 1n) return "USDT/WOKB 0.3%";
+  // All strategies deployed against the USDT/WOKB 0.3% pool on X Layer
+  // (IDs 0-10 created during hackathon development and live demo)
+  const usdtWokbStrategies = [0n, 1n, 3n, 4n, 5n, 6n, 7n, 8n, 9n, 10n];
+  if (usdtWokbStrategies.includes(strategyId)) return "USDT/WOKB 0.3%";
   if (strategyId === 2n) return "WETH/USDT 0.3%";
-  return `strategy #${strategyId}`;
+  return "USDT/WOKB 0.3%"; // default for new strategies
 }
