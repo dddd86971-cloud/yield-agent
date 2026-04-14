@@ -87,8 +87,8 @@ export function V3Positions() {
     );
   }
 
-  // Gate: wallet connected but no strategy deployed
-  if (!hasStrategy) {
+  // Gate: wallet connected but no strategy deployed OR not the deployer
+  if (!hasStrategy || !isOwner) {
     return (
       <div className="rounded-xl bg-white/5 border border-white/10 p-6">
         <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
@@ -99,9 +99,13 @@ export function V3Positions() {
         </h3>
         <div className="text-center py-8">
           <Lock className="w-8 h-8 text-white/20 mx-auto mb-3" />
-          <p className="text-white/40 text-sm mb-1">No active strategy</p>
+          <p className="text-white/40 text-sm mb-1">
+            {!hasStrategy ? "No active strategy" : "Not your strategy"}
+          </p>
           <p className="text-white/30 text-xs">
-            Deploy a strategy above to mint a V3 LP position. Your positions will appear here.
+            {!hasStrategy
+              ? "Deploy a strategy above to mint a V3 LP position. Your positions will appear here."
+              : "This strategy was deployed by another wallet. Only the deployer can view LP positions."}
             <br />
             Other users&apos; positions are only visible on the Agent Leaderboard.
           </p>

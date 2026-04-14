@@ -53,7 +53,7 @@ type DeployResult = {
 };
 
 export function DeployControls({ intent, state }: DeployControlsProps) {
-  const { address } = useAccount();
+  const { address, isConnected } = useAccount();
   const [poolAddress, setPoolAddress] = useState(DEFAULT_POOL_ADDRESS);
   const [confirming, setConfirming] = useState(false);
   const [deploying, setDeploying] = useState(false);
@@ -64,8 +64,11 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
   const isMonitoring =
     state?.status === "monitoring" || state?.status === "rebalancing";
 
+  // Require wallet connection so we can record ownership
   const canDeploy =
     !!intent &&
+    !!isConnected &&
+    !!address &&
     poolAddress.trim().length >= 40 &&
     poolAddress.trim().startsWith("0x") &&
     !deploying;
@@ -165,7 +168,13 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
           </div>
         </div>
 
-        {!intent && (
+        {!isConnected && (
+          <div className="text-xs text-warn italic">
+            Connect your wallet first — ownership is recorded to your address so only you can view your strategy.
+          </div>
+        )}
+
+        {isConnected && !intent && (
           <div className="text-xs text-white/50 italic">
             Parse an intent above first — Deploy activates once a{" "}
             <code className="font-mono">UserIntent</code> is ready.
