@@ -72,34 +72,43 @@ YieldAgent is an **autonomous AI liquidity strategist** that manages Uniswap V3 
 
 This split-key design means a judge can cross-reference `StrategyManager.getExecutions(strategyId)` against the Agentic Wallet's on-chain activity — the tx hashes must match 1:1, because the audit signer physically cannot fabricate DEX transactions.
 
-### Multi-User Scaling: Bring Your Own Agentic Wallet
+### Wallet Roles: Who Does What
 
-The current demo runs a **single-agent architecture** — one Agentic Wallet manages all LP positions. In production, each user deploys their own agent instance with their own Agentic Wallet:
+YieldAgent uses three distinct wallets, each with a clear responsibility:
+
+| Wallet | Role | What It Does | What It Cannot Do |
+|--------|------|-------------|-------------------|
+| **Agentic Wallet** (TEE) `0x6ab27b82...` | Executor | Signs all DEX txs: V3 mint, swap, approve, collect fees, rebalance | Cannot write audit records |
+| **Audit EOA** `0x2E2FC9...` | Recorder | Writes strategy records + decision logs to on-chain contracts | Cannot sign DEX transactions |
+| **User's Browser Wallet** | Observer | Identity binding — records "who initiated this strategy" in the frontend | Does not sign any transaction, does not spend any funds |
+
+The user's browser wallet connects via RainbowKit/wagmi but **never signs transactions or spends tokens**. All on-chain execution is handled by the Agentic Wallet inside the OnchainOS TEE.
+
+### Current Architecture: Single-Agent Demo
+
+The hackathon demo runs a **single Agentic Wallet** that manages all LP positions. This proves the core capability: an AI agent that autonomously deploys, monitors, rebalances, and compounds real V3 LP positions via TEE-signed transactions, with every decision permanently recorded on-chain.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                   Current Demo (Hackathon)                    │
 │                                                               │
-│   All users ──→ Shared Agent Backend ──→ One Agentic Wallet  │
-│                                          0x6ab27b82...       │
-│   LP NFTs owned by agent wallet, users observe via frontend  │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                Production Vision (Multi-Tenant)               │
-│                                                               │
-│   User A ──→ Own Agent Instance ──→ Agentic Wallet A         │
-│              (.env: own API keys)    LP NFTs owned by User A  │
-│                                                               │
-│   User B ──→ Own Agent Instance ──→ Agentic Wallet B         │
-│              (.env: own API keys)    LP NFTs owned by User B  │
-│                                                               │
-│   Each user's LP is fully isolated and self-custodied         │
-│   via their own OnchainOS TEE signer                          │
+│   Any wallet ──→ Connect to frontend ──→ Initiate strategy   │
+│                         ↓                                     │
+│   Shared Agent Backend ──→ Single Agentic Wallet             │
+│                             0x6ab27b82...                     │
+│                             ↓                                 │
+│   LP NFTs owned by Agentic Wallet, managed autonomously      │
+│   Users observe their strategies via frontend (localStorage)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**How to deploy your own agent:**
+### Production Roadmap: Per-User Isolated Agents
+
+The architecture is designed to scale from single-agent to full multi-tenant without code changes:
+
+**Phase 1 — Self-Hosted Agent (Available Now)**
+
+Any user can run their own isolated agent instance today:
 
 1. Create your Agentic Wallet: `onchainos wallet login --force`
 2. Get API keys from [OnchainOS Dev Portal](https://web3.okx.com/onchainos/dev-portal)
@@ -107,7 +116,68 @@ The current demo runs a **single-agent architecture** — one Agentic Wallet man
 4. Fund your Agentic Wallet with USDT + OKB on X Layer
 5. Run `cd agent && npm start` — your LP positions belong to your wallet
 
-The architecture is fully replicable — each instance is self-contained and requires zero code changes.
+Each instance is fully self-contained. Zero code changes required.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              Phase 1: Self-Hosted (Available Now)             │
+│                                                               │
+│   User A ──→ Own Backend ──→ Own Agentic Wallet A            │
+│              (.env: own keys)  LP NFTs owned by Wallet A     │
+│                                                               │
+│   User B ──→ Own Backend ──→ Own Agentic Wallet B            │
+│              (.env: own keys)  LP NFTs owned by Wallet B     │
+│                                                               │
+│   Fully isolated. Each user controls their own funds.        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Phase 2 — Managed Multi-Tenant Platform (Planned)**
+
+A hosted platform that provisions per-user Agentic Wallets automatically:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│             Phase 2: Managed Platform (Planned)               │
+│                                                               │
+│   User connects browser wallet                                │
+│     ↓                                                         │
+│   Platform creates Agentic Wallet via OnchainOS SDK           │
+│     ↓                                                         │
+│   User funds their own Agentic Wallet (USDT + OKB)           │
+│     ↓                                                         │
+│   Platform provisions isolated agent worker                   │
+│     ↓                                                         │
+│   AI manages LP using user's own Agentic Wallet               │
+│     ↓                                                         │
+│   LP NFTs owned by user's TEE wallet — fully self-custodied  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Key features planned for Phase 2:
+- **One-click onboarding**: connect wallet → auto-create Agentic Wallet → fund → deploy
+- **Per-user agent isolation**: each user gets a dedicated agent worker with their own TEE signer
+- **Cross-strategy leaderboard**: compare performance across all users' strategies on-chain
+- **Vault-based delegation**: users who prefer not to run their own agent can deposit into FollowVault to mirror top-performing agents
+
+**Phase 3 — Decentralized Agent Network (Vision)**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│           Phase 3: Decentralized Network (Vision)             │
+│                                                               │
+│   Agent operators stake OKB to run yield management nodes    │
+│     ↓                                                         │
+│   Users delegate funds to agents via smart contract vaults   │
+│     ↓                                                         │
+│   On-chain reputation system ranks agents by verified ROI    │
+│     ↓                                                         │
+│   DecisionLogger provides transparent, auditable track record│
+│     ↓                                                         │
+│   Revenue sharing: agent takes performance fee, user keeps   │
+│   the rest — enforced by smart contract, no trust required   │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
