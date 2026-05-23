@@ -26,7 +26,7 @@ contract RegisterAgent is Script {
         AgentRegistry registry = AgentRegistry(vm.envAddress("REGISTRY_ADDR"));
         AgentArenaHook hook  = AgentArenaHook(payable(vm.envAddress("HOOK_ADDR")));
         bytes32 poolId       = vm.envBytes32("POOL_ID");
-        uint256 initialStake = vm.envOr("INITIAL_STAKE", uint256(1000 * 1e6)); // default 1000 USDT
+        uint256 initialStake = vm.envOr("INITIAL_STAKE", uint256(5 * 1e6)); // default 5 USDT (demo)
 
         IERC20 usdt = IERC20(Config.USDT);
 

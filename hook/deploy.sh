@@ -42,7 +42,7 @@ set -a
 set +a
 : "${DEPLOYER_PK:?DEPLOYER_PK not set in .env}"
 : "${AGENT_PK:?AGENT_PK not set in .env}"
-: "${INITIAL_STAKE:=1000000000}"  # 1000 USDT default
+: "${INITIAL_STAKE:=5000000}"  # 5 USDT default (hackathon demo)
 
 export PATH="$HOME/.foundry/bin:$PATH"
 

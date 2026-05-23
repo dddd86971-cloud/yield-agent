@@ -18,7 +18,9 @@ contract AgentRegistry is IAgentArena, ReentrancyGuard {
     // ─────────────────────────────────────────────────────────────────────
 
     /// @notice Minimum stake to register (in stake-token wei).
-    uint256 public constant MIN_STAKE = 100 * 1e6; // 100 USDT (6 decimals)
+    /// @dev    Hackathon v1: 1 USDT to keep demo barriers low. Production
+    ///         versions should raise this to a meaningful slashable amount.
+    uint256 public constant MIN_STAKE = 1 * 1e6; // 1 USDT (6 decimals)
 
     /// @notice Maximum reputation multiplier (×1e4). 20_000 == 2.0×.
     uint256 public constant MAX_REPUTATION = 20_000;
