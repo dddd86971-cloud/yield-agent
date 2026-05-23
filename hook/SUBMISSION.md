@@ -110,9 +110,43 @@ Solc 0.8.26 finished in 760ms
 ✓ AgentArenaHook  10,804 bytes  (44% of 24KB limit)
 ✓ AgentRegistry    4,658 bytes  (19% of 24KB limit)
 
-$ forge test
-Ran 2 test suites: 12 tests passed, 0 failed
+$ forge test --fork-url https://rpc.xlayer.tech
+Ran 3 test suites: 15 tests passed, 0 failed
+  · AgentArenaHook.t.sol      5/5  (unit)
+  · MultiAgentEpoch.t.sol     7/7  (integration — full epoch lifecycle)
+  · ForkDeployment.t.sol      3/3  (LIVE X Layer mainnet @ block 60735890)
 ```
+
+### Forked-mainnet proof (real X Layer state)
+
+The most important test: **our hook is accepted by the actual X Layer V4 PoolManager**.
+
+```
+=== Fork Deployment Initialized ===
+Chain ID:     196
+Block:        60735890
+PoolManager:  0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32
+Hook:         0xA40AeA0b8cD8Fe8029a9d3a948376D1D49359ac0  ← mined CREATE2
+
+--- Calling PoolManager.initialize on LIVE X Layer ---
+currency0:     0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+currency1:     0xe538905cf8410324e03A5A23C1c177a474D59b2b (WOKB)
+fee (dynamic): 8388608
+tickSpacing:   60
+Initial tick:  0
+
+--- Hook afterInitialize fired correctly ---
+currentEpoch:     1
+epochStartTime:   1779504926
+activeManager:    address(0) (none yet)
+
+PROOF: V4 PoolManager on X Layer accepted our hook.
+PROOF: afterInitialize callback executed.
+```
+
+Hook permission encoding verified: lower-14 bits of hook address = `0x1AC0` = `AFTER_INIT | BEFORE_ADD_LIQ | BEFORE_REMOVE_LIQ | BEFORE_SWAP | AFTER_SWAP`.
+
+Full pipeline (deploy → init → bid → elect → swap → settle → slash) runs end-to-end on forked mainnet in 30 seconds with zero errors.
 
 The headline integration test (`test_FullEpochLifecycle_3AgentsCompete_AggressiveWinsAndGetsSlashed`) demonstrates the entire mechanism on-chain in one transaction sequence:
 

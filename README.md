@@ -5,7 +5,8 @@
   <img src="https://img.shields.io/badge/OnchainOS-TEE%20Signed-blue?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Uniswap%20V3-LP%20Positions-ff007a?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Uniswap%20AI%20Skills-liquidity--planner%20%2B%20swap--planner-ff007a?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Tests-97%20Passing-brightgreen?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Tests-100%20Passing-brightgreen?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/X%20Layer%20Mainnet%20Fork-15%2F15-00ffa3?style=for-the-badge" />
   <img src="https://img.shields.io/badge/Pages-6%20Routes-9333ea?style=for-the-badge" />
   <img src="https://img.shields.io/badge/API-19%20Endpoints-0ea5e9?style=for-the-badge" />
   <img src="https://img.shields.io/badge/v3%20Roadmap-Multi--Brain%20x402%20Economy-ff007a?style=for-the-badge" />
@@ -108,16 +109,37 @@ Each epoch (4 hours):
 **Build:**
 ```bash
 cd hook && ./setup.sh   # installs Uniswap V4 + V4 Hooks Public + OZ + forge-std + compiles
-forge test              # 12/12 passing — incl. full epoch lifecycle with 3 competing agents
+forge test --fork-url https://rpc.xlayer.tech  # 15/15 passing on LIVE X Layer
 ```
 
-**Headline integration test output:**
+**Headline test: forked X Layer mainnet, block 60735890** — our hook is accepted by the **real** V4 PoolManager `0x360E…fb32`:
+```
+=== Fork Deployment ===
+Chain ID:     196
+PoolManager:  0x360E68faCcca8cA495c1B759Fd9EEe466db9FB32 (real V4)
+Hook:         0xA40AeA0b8cD8Fe8029a9d3a948376D1D49359ac0 (mined CREATE2)
+Lower-14 flags: 0x1AC0 (matches required permissions exactly)
+
+--- PoolManager.initialize() on LIVE X Layer ---
+Initial tick:    0
+currentEpoch:    1
+epochStartTime:  1779504926
+PROOF: V4 PoolManager on X Layer accepted our hook.
+PROOF: afterInitialize callback executed.
+
+--- Full Pipeline on Fork ---
+2 agents bid → AgentA wins → epoch runs → settled
+Slashed:        250 USDT
+LP sink:        250 USDT (received slash flow)
+Reputation:     10000 → 9251
+```
+
+**Integration test (`MultiAgentEpoch.t.sol`):**
 ```
 test_FullEpochLifecycle_3AgentsCompete_AggressiveWinsAndGetsSlashed:
   Confident  score:  42,857,142,857
   Cautious   score:   3,508,771,929
   Aggressive score:  59,523,809,523  ← winner
-  Active Manager: AggressiveAgent
   Stake slashed:        250 USDT  →  LP sink received: 250 USDT
   Reputation:           10000 → 9251
   Now in Epoch 2 -- bidding open for next round
