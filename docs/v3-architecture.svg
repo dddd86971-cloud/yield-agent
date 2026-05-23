@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif">
+  <!-- Definitions -->
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a1f30" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="coordinatorGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00ffa3"/>
+      <stop offset="100%" stop-color="#00d488"/>
+    </linearGradient>
+    <linearGradient id="brainGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1a1f30"/>
+      <stop offset="100%" stop-color="#131a2a"/>
+    </linearGradient>
+    <linearGradient id="chainGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0f1525"/>
+      <stop offset="100%" stop-color="#0a0e1a"/>
+    </linearGradient>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#ff007a"/>
+    </marker>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1600" height="900" fill="#0a0e1a"/>
+  <rect width="1600" height="900" fill="url(#grid)" opacity="0.4"/>
+
+  <!-- Top accent bar -->
+  <rect x="0" y="0" width="1600" height="4" fill="#00ffa3"/>
+
+  <!-- Title block -->
+  <text x="800" y="80" text-anchor="middle" font-size="56" font-weight="800" fill="#ffffff" letter-spacing="-1">
+    YieldAgent <tspan fill="#00ffa3">v3</tspan>
+  </text>
+  <text x="800" y="125" text-anchor="middle" font-size="28" font-weight="600" fill="#e5e7eb">
+    Multi-Brain x402 Economy on X Layer
+  </text>
+  <text x="800" y="160" text-anchor="middle" font-size="18" font-weight="400" fill="#94a3b8">
+    Sovereign brains  ·  Autonomous micropayments  ·  Real Uniswap V3 LP
+  </text>
+
+  <!-- Coordinator card -->
+  <rect x="600" y="210" width="400" height="120" rx="20" fill="url(#coordinatorGradient)" filter="url(#glow)"/>
+  <text x="800" y="250" text-anchor="middle" font-size="28" font-weight="800" fill="#0a0e1a">🧭 COORDINATOR</text>
+  <text x="800" y="280" text-anchor="middle" font-size="15" font-weight="600" fill="#0a0e1a">Orchestrator  ·  TEE Wallet #1</text>
+  <text x="800" y="305" text-anchor="middle" font-size="13" font-weight="500" fill="#0a0e1a" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">0x6ab27b82…11d61</text>
+
+  <!-- x402 label centered between coordinator and brains -->
+  <rect x="540" y="360" width="520" height="44" rx="22" fill="#1a1024" stroke="#ff007a" stroke-width="1.5"/>
+  <text x="800" y="389" text-anchor="middle" font-size="17" font-weight="700" fill="#ff007a">
+    💸  x402 micropayment  ·  0.0001 USDG / call  ·  EIP-3009
+  </text>
+
+  <!-- Arrows from Coordinator to brains -->
+  <line x1="800" y1="330" x2="240" y2="465" stroke="#ff007a" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowhead)"/>
+  <line x1="800" y1="330" x2="600" y2="465" stroke="#ff007a" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowhead)"/>
+  <line x1="800" y1="330" x2="1000" y2="465" stroke="#ff007a" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowhead)"/>
+  <line x1="800" y1="330" x2="1360" y2="465" stroke="#ff007a" stroke-width="2.5" stroke-dasharray="6,4" marker-end="url(#arrowhead)"/>
+
+  <!-- Brain 1: Market -->
+  <rect x="100" y="465" width="280" height="170" rx="16" fill="url(#brainGradient)" stroke="#00ffa3" stroke-width="2"/>
+  <text x="240" y="510" text-anchor="middle" font-size="44">📊</text>
+  <text x="240" y="548" text-anchor="middle" font-size="22" font-weight="700" fill="#ffffff">Market Brain</text>
+  <text x="240" y="575" text-anchor="middle" font-size="13" font-weight="600" fill="#00ffa3">TEE Wallet #2</text>
+  <line x1="140" y1="588" x2="340" y2="588" stroke="#2a3142" stroke-width="1"/>
+  <text x="240" y="608" text-anchor="middle" font-size="12" font-weight="400" fill="#94a3b8">on-chain TWAP</text>
+  <text x="240" y="625" text-anchor="middle" font-size="12" font-weight="400" fill="#94a3b8">volatility · trend state</text>
+
+  <!-- Brain 2: Pool -->
+  <rect x="460" y="465" width="280" height="170" rx="16" fill="url(#brainGradient)" stroke="#00ffa3" stroke-width="2"/>
+  <text x="600" y="510" text-anchor="middle" font-size="44">🏊</text>
+  <text x="600" y="548" text-anchor="middle" font-size="22" font-weight="700" fill="#ffffff">Pool Brain</text>
+  <text x="600" y="575" text-anchor="middle" font-size="13" font-weight="600" fill="#00ffa3">TEE Wallet #3</text>
+  <line x1="500" y1="588" x2="700" y2="588" stroke="#2a3142" stroke-width="1"/>
+  <text x="600" y="608" text-anchor="middle" font-size="12" font-weight="400" fill="#94a3b8">liquidity-planner@0.2</text>
+  <text x="600" y="625" text-anchor="middle" font-size="12" font-weight="400" fill="#94a3b8">swap-planner · ranges</text>
+
+  <!-- Brain 3: Risk -->
+  <rect x="860" y="465" width="280" height="170" rx="16" fill="url(#brainGradient)" stroke="#00ffa3" stroke-width="2"/>
+  <text x="1000" y="510" text-anchor="middle" font-size="44">🛡️</text>
+  <text x="1000" y="548" text-anchor="middle" font-size="22" font-weight="700" fill="#ffffff">Risk Brain</text>
+  <text x="1000" y="575" text-anchor="middle" font-size="13" font-weight="600" fill="#00ffa3">TEE Wallet #4</text>
+  <line x1="900" y1="588" x2="1100" y2="588" stroke="#2a3142" stroke-width="1"/>
+  <text x="1000" y="608" text-anchor="middle" font-size="12" font-weight="400" fill="#94a3b8">IL math · health 0–100</text>
+  <text x="1000" y="625" text-anchor="middle" font-size="12" font-weight="400" fill="#94a3b8">exit triggers</text>
+
+  <!-- Brain 4: Lending (NEW) -->
+  <rect x="1220" y="465" width="280" height="170" rx="16" fill="url(#brainGradient)" stroke="#fbbf24" stroke-width="2"/>
+  <text x="1360" y="510" text-anchor="middle" font-size="44">🏦</text>
+  <text x="1360" y="548" text-anchor="middle" font-size="22" font-weight="700" fill="#ffffff">Lending Brain</text>
+  <text x="1360" y="575" text-anchor="middle" font-size="13" font-weight="600" fill="#fbbf24">TEE Wallet #5  ·  NEW</text>
+  <line x1="1260" y1="588" x2="1460" y2="588" stroke="#2a3142" stroke-width="1"/>
+  <text x="1360" y="608" text-anchor="middle" font-size="12" font-weight="400" fill="#94a3b8">supply / borrow APR</text>
+  <text x="1360" y="625" text-anchor="middle" font-size="12" font-weight="400" fill="#94a3b8">idle-USDT auto-yield</text>
+
+  <!-- Down arrows from brains to chain -->
+  <line x1="240" y1="635" x2="240" y2="700" stroke="#2a3142" stroke-width="2"/>
+  <line x1="600" y1="635" x2="600" y2="700" stroke="#2a3142" stroke-width="2"/>
+  <line x1="1000" y1="635" x2="1000" y2="700" stroke="#2a3142" stroke-width="2"/>
+  <line x1="1360" y1="635" x2="1360" y2="700" stroke="#2a3142" stroke-width="2"/>
+
+  <!-- Bottom bar: X Layer Mainnet -->
+  <rect x="60" y="700" width="1480" height="140" rx="16" fill="url(#chainGradient)" stroke="#2a3142" stroke-width="1.5"/>
+  <text x="800" y="730" text-anchor="middle" font-size="13" font-weight="700" fill="#94a3b8" letter-spacing="2">X LAYER MAINNET  ·  CHAIN ID 196</text>
+
+  <!-- 4 chain destinations -->
+  <rect x="100" y="745" width="320" height="80" rx="10" fill="#0f1525" stroke="#ff007a" stroke-width="1"/>
+  <text x="260" y="775" text-anchor="middle" font-size="18" font-weight="700" fill="#ff007a">Uniswap V3</text>
+  <text x="260" y="797" text-anchor="middle" font-size="12" fill="#94a3b8">NPM.mint · collect · rebalance</text>
+  <text x="260" y="813" text-anchor="middle" font-size="11" fill="#64748b" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">NFT #962 live</text>
+
+  <rect x="450" y="745" width="320" height="80" rx="10" fill="#0f1525" stroke="#3b82f6" stroke-width="1"/>
+  <text x="610" y="775" text-anchor="middle" font-size="18" font-weight="700" fill="#3b82f6">Aave V3</text>
+  <text x="610" y="797" text-anchor="middle" font-size="12" fill="#94a3b8">supply · withdraw · borrow</text>
+  <text x="610" y="813" text-anchor="middle" font-size="11" fill="#64748b" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">v3 NEW path</text>
+
+  <rect x="800" y="745" width="320" height="80" rx="10" fill="#0f1525" stroke="#00ffa3" stroke-width="1"/>
+  <text x="960" y="775" text-anchor="middle" font-size="18" font-weight="700" fill="#00ffa3">OKX DEX</text>
+  <text x="960" y="797" text-anchor="middle" font-size="12" fill="#94a3b8">aggregator · cross-DEX routing</text>
+  <text x="960" y="813" text-anchor="middle" font-size="11" fill="#64748b" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">via OnchainOS</text>
+
+  <rect x="1150" y="745" width="350" height="80" rx="10" fill="#0f1525" stroke="#fbbf24" stroke-width="1"/>
+  <text x="1325" y="775" text-anchor="middle" font-size="18" font-weight="700" fill="#fbbf24">Audit Contracts</text>
+  <text x="1325" y="797" text-anchor="middle" font-size="12" fill="#94a3b8">DecisionLogger · x402PaymentLog</text>
+  <text x="1325" y="813" text-anchor="middle" font-size="11" fill="#64748b" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">FollowVaultFactory · StrategyManager</text>
+
+  <!-- Footer -->
+  <text x="800" y="875" text-anchor="middle" font-size="13" font-weight="500" fill="#64748b" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
+    github.com/dddd86971-cloud/yield-agent  ·  frontend-nine-theta-22.vercel.app  ·  #BuildXAI #XLayer
+  </text>
+</svg>
