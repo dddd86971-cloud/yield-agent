@@ -27,6 +27,8 @@ export interface AgentState {
   lastCompound: number;
   evaluationCount: number;
   intent: UserIntent | null;
+  /** Browser wallet that initiated this deploy — server-side ownership tracking. */
+  deployerWallet: string | null;
 }
 
 export interface MarketSnapshot {
@@ -164,12 +166,48 @@ export interface V3PoolState {
   fee: number;
 }
 
+export interface PersistedStrategy {
+  strategyId: number;
+  poolAddress: string;
+  deployerWallet: string | null;
+  status: string;
+  intent: UserIntent | null;
+  evaluationCount: number;
+  lastEvaluation: number;
+  lastFullEval: number;
+  lastCompound: number;
+  nftTokenId?: string;
+  investmentId?: string;
+  token0Symbol?: string;
+  token1Symbol?: string;
+  principalUSD?: number;
+  deployedAt: number;
+}
+
+export interface PnLSnapshot {
+  timestamp: number;
+  strategyId: number;
+  poolAddress: string;
+  nftTokenId?: string;
+  liquidity: string;
+  feesOwed0: string;
+  feesOwed1: string;
+  priceOKB?: number;
+  positionValueUSD?: number;
+  feesValueUSD?: number;
+  isInRange: boolean;
+}
+
 export const api = {
   health: () => request<HealthInfo>("/api/health"),
   v3Positions: () => request<V3PositionsResponse>("/api/v3/positions"),
   v3Pool: (address: string) => request<V3PoolState>(`/api/v3/pool/${address}`),
-  state: () => request<AgentState>("/api/state"),
-  history: () => request<EvaluationLite[]>("/api/history"),
+  state: (wallet?: string) =>
+    request<AgentState>(wallet ? `/api/state?wallet=${encodeURIComponent(wallet)}` : "/api/state"),
+  history: (wallet?: string) =>
+    request<EvaluationLite[]>(
+      wallet ? `/api/history?wallet=${encodeURIComponent(wallet)}` : "/api/history",
+    ),
   latest: () => request<EvaluationLite | null>("/api/latest"),
   brainsSnapshot: () => request<EvaluationLite>("/api/brains/snapshot"),
 
@@ -185,7 +223,7 @@ export const api = {
       body: JSON.stringify({ poolAddress }),
     }),
 
-  deploy: (poolAddress: string, intent: UserIntent) =>
+  deploy: (poolAddress: string, intent: UserIntent, deployerWallet?: string) =>
     request<{
       strategyId: number;
       /** X Layer audit tx hash from StrategyManager.deployStrategy(). */
@@ -203,7 +241,7 @@ export const api = {
       executionMode: "live" | "simulated" | "audit-only";
     }>("/api/deploy", {
       method: "POST",
-      body: JSON.stringify({ poolAddress, intent }),
+      body: JSON.stringify({ poolAddress, intent, deployerWallet }),
     }),
 
   startMonitor: (strategyId?: number) =>
@@ -221,6 +259,46 @@ export const api = {
     request<ChatResponse>("/api/chat", {
       method: "POST",
       body: JSON.stringify({ message }),
+    }),
+
+  defiOpportunities: (token = "USDT", platform?: string) => {
+    const q = new URLSearchParams({ token });
+    if (platform) q.set("platform", platform);
+    return request<{
+      chain: string;
+      token: string;
+      platform: string;
+      count: number;
+      opportunities: Array<{
+        investmentId: string;
+        name?: string;
+        tvl?: string;
+        rate?: string;
+        platform?: string;
+        [k: string]: unknown;
+      }>;
+    }>(`/api/defi/opportunities?${q.toString()}`);
+  },
+
+  strategiesByWallet: (wallet: string) =>
+    request<{ count: number; strategies: PersistedStrategy[] }>(
+      `/api/strategies?wallet=${encodeURIComponent(wallet)}`,
+    ),
+
+  pnlByStrategy: (strategyId: number) =>
+    request<{ strategyId: number; count: number; snapshots: PnLSnapshot[] }>(
+      `/api/pnl/${strategyId}`,
+    ),
+
+  pnlByWallet: (wallet: string) =>
+    request<{ wallet: string; count: number; snapshots: PnLSnapshot[] }>(
+      `/api/pnl?wallet=${encodeURIComponent(wallet)}`,
+    ),
+
+  pnlRefresh: (priceUSD?: number) =>
+    request<{ ok: boolean; timestamp: number }>("/api/pnl/refresh", {
+      method: "POST",
+      body: JSON.stringify({ priceUSD }),
     }),
 
   /** SSE streaming chat — yields StreamEvent via callback. */

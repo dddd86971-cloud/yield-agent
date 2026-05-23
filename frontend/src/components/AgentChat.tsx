@@ -14,6 +14,10 @@ import {
   AlertCircle,
   ExternalLink,
   Rocket,
+  TrendingUp,
+  Target,
+  Lightbulb,
+  History,
 } from "lucide-react";
 import { api, type StreamEvent } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -36,7 +40,11 @@ interface Message {
 const QUICK_ACTIONS = [
   { label: "Deploy 100 USDT moderate", icon: Rocket },
   { label: "Analyze the pool", icon: BarChart3 },
-  { label: "What's the current status?", icon: Zap },
+  { label: "Status", icon: Zap },
+  { label: "PnL", icon: TrendingUp },
+  { label: "Position", icon: Target },
+  { label: "History", icon: History },
+  { label: "Suggest", icon: Lightbulb },
   { label: "Why did you make that decision?", icon: Brain },
 ];
 
@@ -51,7 +59,12 @@ export function AgentChat() {
     {
       role: "agent",
       content:
-        "I'm YieldAgent — an autonomous AI LP manager. You can deploy strategies, analyze pools, or ask me anything. Try: \"deploy 100 USDT conservative\"",
+        "I'm YieldAgent — an autonomous AI LP manager on X Layer.\n\n" +
+        "Quick commands:\n" +
+        "  • `deploy 100 USDT conservative` — spin up a strategy\n" +
+        "  • `analyze` — run the three-brain engine on the current pool\n" +
+        "  • `status` · `pnl` · `position` · `history` · `suggest`\n\n" +
+        "Or just ask anything in English / 中文.",
       timestamp: Date.now(),
     },
   ]);

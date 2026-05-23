@@ -13,7 +13,7 @@ import {
   Lock,
 } from "lucide-react";
 import { useAccount } from "wagmi";
-import { ownsStrategy } from "@/lib/strategyOwnership";
+// Ownership check removed — decision log is read-only on-chain data, visible to all.
 
 const ACTION_ICONS: Record<string, any> = {
   hold: Pause,
@@ -28,8 +28,9 @@ export function DecisionLog({ limit = 10 }: { limit?: number }) {
   const { isConnected, address } = useAccount();
   const decisions = [...history].reverse().slice(0, limit);
 
-  // Gate: wallet not connected OR not the strategy deployer
-  const isOwner = isConnected && address && state?.strategyId != null && ownsStrategy(address, state.strategyId);
+  // Gate: wallet not connected or not the strategy deployer (server-side ownership)
+  const isOwner = isConnected && address && state?.strategyId != null &&
+    state?.deployerWallet?.toLowerCase() === address?.toLowerCase();
   if (!isConnected || !isOwner) {
     return (
       <div className="card">

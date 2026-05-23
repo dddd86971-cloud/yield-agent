@@ -6,14 +6,9 @@ import { api, UserIntent } from "@/lib/api";
 import { cn, formatUSD } from "@/lib/utils";
 
 const SAMPLE_PROMPTS = [
-  "Stable yield on $5000 with OKB/USDC, max 5% IL",
-  "Aggressive farming, 1万U, target 30% APR",
-  "Conservative LP for OKB with 2000 USDC",
-];
-
-const POOLS = [
-  { label: "USDT/OKB 0.3%", address: "0x63d62734847E55A266FCa4219A9aD0a02D5F6e02" },
-  { label: "WETH/USDT 0.3%", address: "0xd4e12E274AEFC5F0b4abC1fC5D9581e4B8bE04da" },
+  "Stable yield on $5000 with USDT/OKB, max 5% IL",
+  "Aggressive farming, 1000 USDT, target 30% APR",
+  "Conservative LP for OKB with 2000 USDT",
 ];
 
 export function IntentInput({ onIntent }: { onIntent: (intent: UserIntent) => void }) {
@@ -21,7 +16,6 @@ export function IntentInput({ onIntent }: { onIntent: (intent: UserIntent) => vo
   const [loading, setLoading] = useState(false);
   const [intent, setIntent] = useState<UserIntent | null>(null);
   const [error, setError] = useState("");
-  const [selectedPool, setSelectedPool] = useState(POOLS[0].address);
 
   const submit = async () => {
     if (!input.trim() || loading) return;
@@ -85,27 +79,6 @@ export function IntentInput({ onIntent }: { onIntent: (intent: UserIntent) => vo
         </button>
       </div>
 
-      {/* Pool selector */}
-      <div className="mt-3 flex items-center gap-3">
-        <span className="text-xs text-white/50 font-mono">Pool:</span>
-        <div className="flex gap-2">
-          {POOLS.map((p) => (
-            <button
-              key={p.address}
-              onClick={() => setSelectedPool(p.address)}
-              className={cn(
-                "text-xs px-3 py-1.5 rounded-lg font-mono transition-colors",
-                selectedPool === p.address
-                  ? "bg-accent/20 text-accent border border-accent/30"
-                  : "bg-bg-border text-white/50 hover:text-white"
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Sample prompts */}
       <div className="mt-3 flex flex-wrap gap-2">
         {SAMPLE_PROMPTS.map((p) => (
@@ -117,6 +90,11 @@ export function IntentInput({ onIntent }: { onIntent: (intent: UserIntent) => vo
             {p}
           </button>
         ))}
+      </div>
+
+      <div className="mt-2 text-[11px] text-white/40 font-mono leading-relaxed">
+        Pool selection happens below — Deploy &amp; Monitor accepts any X Layer V3 pool.
+        Start from the <a href="/app/pools" className="text-accent/70 hover:text-accent underline">Pools</a> page to pre-fill one via `?pool=` query param.
       </div>
 
       {error && (

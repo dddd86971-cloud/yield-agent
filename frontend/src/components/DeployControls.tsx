@@ -19,6 +19,7 @@
  */
 
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Rocket,
   Play,
@@ -38,7 +39,6 @@ import {
 import { api, AgentState, UserIntent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAccount } from "wagmi";
-import { recordDeployment } from "@/lib/strategyOwnership";
 
 // ── Deploy Pipeline Steps ──
 const DEPLOY_STEPS = [
@@ -72,7 +72,13 @@ type DeployResult = {
 
 export function DeployControls({ intent, state }: DeployControlsProps) {
   const { address, isConnected } = useAccount();
-  const [poolAddress, setPoolAddress] = useState(DEFAULT_POOL_ADDRESS);
+  const searchParams = useSearchParams();
+  // Accept ?pool=0x... from the Pools page so "Deploy Strategy Here"
+  // pre-fills the pool input. Falls back to the mainnet default.
+  const poolFromQuery = searchParams.get("pool");
+  const [poolAddress, setPoolAddress] = useState(
+    poolFromQuery && poolFromQuery.startsWith("0x") ? poolFromQuery : DEFAULT_POOL_ADDRESS,
+  );
   const [confirming, setConfirming] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [monitorBusy, setMonitorBusy] = useState(false);
@@ -157,7 +163,7 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
     startStepProgress();
 
     try {
-      const res = await api.deploy(poolAddress.trim(), intent);
+      const res = await api.deploy(poolAddress.trim(), intent, address);
       finishAllSteps(false);
       setResult({
         strategyId: res.strategyId,
@@ -167,9 +173,6 @@ export function DeployControls({ intent, state }: DeployControlsProps) {
         executionMode: res.executionMode,
         reasoning: res.reasoning,
       });
-      if (address) {
-        recordDeployment(address, res.strategyId);
-      }
     } catch (err: any) {
       finishAllSteps(true);
       setError(err?.message ?? "Deploy failed");

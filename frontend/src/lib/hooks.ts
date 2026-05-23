@@ -9,6 +9,7 @@ import {
   connectAgentWs,
   WsEvent,
 } from "./api";
+import { useAccount } from "wagmi";
 
 export interface AlertEntry extends AlertPayload {
   timestamp: number;
@@ -42,34 +43,53 @@ export function AgentStateProvider({ children }: { children: React.ReactNode }) 
   const [connected, setConnected] = useState(false);
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
   const historyRef = useRef<EvaluationLite[]>([]);
+  const { address } = useAccount();
 
-  const handleEvent = useCallback((event: WsEvent) => {
-    setConnected(true);
-    if (event.type === "state") {
-      setState(event.payload);
-    } else if (event.type === "evaluation") {
-      historyRef.current = [...historyRef.current, event.payload].slice(-100);
-      setHistory([...historyRef.current]);
-    } else if (event.type === "history") {
-      historyRef.current = event.payload;
-      setHistory([...historyRef.current]);
-    } else if (event.type === "alert") {
-      setAlerts((prev) => [...prev.slice(-9), { ...event.payload, timestamp: Date.now() }]);
-    }
-  }, []);
+  const handleEvent = useCallback(
+    (event: WsEvent) => {
+      setConnected(true);
+      if (event.type === "state") {
+        // WS pushes the globally-active strategy. Only trust it when:
+        //   1. No wallet is connected (demo mode), OR
+        //   2. The deployer matches the connected wallet.
+        // Otherwise the UI would flash another user's strategy between
+        // REST fetches.
+        if (
+          !address ||
+          !event.payload.deployerWallet ||
+          event.payload.deployerWallet.toLowerCase() === address.toLowerCase()
+        ) {
+          setState(event.payload);
+        }
+      } else if (event.type === "evaluation") {
+        historyRef.current = [...historyRef.current, event.payload].slice(-100);
+        setHistory([...historyRef.current]);
+      } else if (event.type === "history") {
+        historyRef.current = event.payload;
+        setHistory([...historyRef.current]);
+      } else if (event.type === "alert") {
+        setAlerts((prev) => [...prev.slice(-9), { ...event.payload, timestamp: Date.now() }]);
+      }
+    },
+    [address],
+  );
 
   useEffect(() => {
-    // Initial REST fetch (fast path — data shows before WS reconnects)
+    // Fetch per-wallet state so each user sees only their own strategy.
+    // Un-connected sessions still see the last global snapshot (demo).
     api
-      .state()
+      .state(address)
       .then(setState)
       .catch(() => setConnected(false));
     api
-      .history()
+      .history(address)
       .then((h) => {
         if (h.length > 0) {
           historyRef.current = h;
           setHistory(h);
+        } else {
+          historyRef.current = [];
+          setHistory([]);
         }
       })
       .catch(() => {});
@@ -89,7 +109,7 @@ export function AgentStateProvider({ children }: { children: React.ReactNode }) 
     // WebSocket subscription — single connection for entire app
     const disconnect = connectAgentWs(handleEvent);
     return disconnect;
-  }, [handleEvent]);
+  }, [handleEvent, address]);
 
   return React.createElement(
     AgentContext.Provider,

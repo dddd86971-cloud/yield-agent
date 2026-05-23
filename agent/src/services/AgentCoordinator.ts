@@ -27,6 +27,7 @@ import {
   RebalanceResult,
   PositionDetail,
 } from "./V3PositionManager";
+import { getPersistence, PersistenceService, PnLSnapshot } from "./PersistenceService";
 import OpenAI from "openai";
 
 // Action codes matching StrategyManager.recordExecution(uint8 action, …)
@@ -64,6 +65,8 @@ export interface AgentState {
   lastCompound: number;
   evaluationCount: number;
   intent: UserIntent | null;
+  /** Browser wallet that initiated this deploy — server-side ownership tracking. */
+  deployerWallet: string | null;
 }
 
 export interface EvaluationResult {
@@ -93,10 +96,14 @@ export interface StreamEvent {
   data?: any;
 }
 
-/** Supported pools on X Layer mainnet. */
+/**
+ * Supported pools on X Layer mainnet. Keep addresses byte-for-byte in sync
+ * with `config/index.ts` — the typo `fB` vs `fC` in the 5th byte of the
+ * WETH/USDT address was an active bug that made that pool unreachable.
+ */
 const POOLS: Record<string, string> = {
   "USDT/OKB": "0x63d62734847E55A266FCa4219A9aD0a02D5F6e02",
-  "WETH/USDT": "0xd4e12E274AEFC5F0b4abC1fB5D9581e4B8bE04da",
+  "WETH/USDT": "0xd4e12E274AEFC5F0b4abC1fC5D9581e4B8bE04da",
 };
 const DEFAULT_POOL = POOLS["USDT/OKB"];
 
@@ -125,6 +132,8 @@ export class AgentCoordinator {
   /** Map from strategyId to V3 NFT tokenId for direct LP positions. */
   private v3Positions: Map<number, number> = new Map();
   private monitorInterval: ReturnType<typeof setInterval> | null = null;
+  /** Durable storage — survives restarts for strategies, history, PnL snapshots. */
+  private persistence: PersistenceService;
 
   // Event callbacks for frontend
   public onEvaluation?: (result: EvaluationResult) => void;
@@ -185,13 +194,227 @@ export class AgentCoordinator {
       lastCompound: 0,
       evaluationCount: 0,
       intent: null,
+      deployerWallet: null,
     };
+
+    // Load durable state — restores latest strategy + evaluation history
+    // + per-strategy PnL snapshots across restarts. On first boot this is a
+    // no-op; on subsequent boots the dashboard shows the last-known strategy
+    // without re-deploying.
+    this.persistence = getPersistence();
+    this.restoreFromPersistence();
+  }
+
+  /**
+   * Hydrate in-memory state from disk on startup.
+   *
+   * Strategy selected: the newest by `deployedAt` (among persisted records).
+   * Rehydration fills strategyContexts + v3Positions so rebalance / compound
+   * / exit work exactly as they did pre-restart without re-running deploy.
+   *
+   * Evaluation history is restored with a hard cap of MAX_HISTORY_ENTRIES so
+   * the monitor loop's `evaluationHistory.length >= 2` price-delta alert still
+   * fires correctly against the prior sample.
+   */
+  private restoreFromPersistence() {
+    const persistedHistory = this.persistence.getHistory();
+    if (persistedHistory.length > 0) {
+      this.evaluationHistory = persistedHistory as EvaluationResult[];
+      console.log(`[AgentCoordinator] Restored ${persistedHistory.length} evaluations from disk.`);
+    }
+
+    const strategies = this.persistence.listStrategies();
+    if (strategies.length === 0) return;
+
+    // Rehydrate strategy-context map for ALL persisted strategies so a
+    // follow-up `/api/strategies/:id/pnl` lookup works for any historical
+    // record, not just the latest.
+    for (const s of strategies) {
+      if (s.nftTokenId) {
+        const idNum = parseInt(s.nftTokenId);
+        if (!Number.isNaN(idNum)) this.v3Positions.set(s.strategyId, idNum);
+      }
+      this.strategyContexts.set(s.strategyId, {
+        investmentId: s.investmentId ?? `strategy-${s.strategyId}`,
+        poolAddress: s.poolAddress,
+        token0Symbol: s.token0Symbol ?? "?",
+        token1Symbol: s.token1Symbol ?? "?",
+        quoteTokenSymbol: config.onchainos.stableTokenSymbol,
+        chainName: config.onchainos.defaultChain,
+        nftTokenId: s.nftTokenId,
+      });
+    }
+
+    // Promote the newest strategy into active state so the dashboard shows
+    // something meaningful immediately after restart.
+    const latest = strategies[0];
+    this.state = {
+      strategyId: latest.strategyId,
+      poolAddress: latest.poolAddress,
+      status: latest.status as AgentState["status"],
+      lastEvaluation: latest.lastEvaluation,
+      lastFullEval: latest.lastFullEval,
+      lastCompound: latest.lastCompound,
+      evaluationCount: latest.evaluationCount,
+      intent: latest.intent,
+      deployerWallet: latest.deployerWallet,
+    };
+    console.log(
+      `[AgentCoordinator] Restored active strategy #${latest.strategyId} ` +
+        `(pool=${latest.poolAddress}, deployer=${latest.deployerWallet})`,
+    );
+  }
+
+  /**
+   * Persist the current AgentState as a strategy record.
+   * Called whenever strategyId changes or monitoring updates in-memory state.
+   */
+  private persistCurrentStrategy() {
+    if (this.state.strategyId === null) return;
+    const ctx = this.strategyContexts.get(this.state.strategyId);
+    this.persistence.upsertStrategy({
+      strategyId: this.state.strategyId,
+      poolAddress: this.state.poolAddress,
+      deployerWallet: this.state.deployerWallet,
+      status: this.state.status,
+      intent: this.state.intent,
+      evaluationCount: this.state.evaluationCount,
+      lastEvaluation: this.state.lastEvaluation,
+      lastFullEval: this.state.lastFullEval,
+      lastCompound: this.state.lastCompound,
+      nftTokenId: ctx?.nftTokenId,
+      investmentId: ctx?.investmentId,
+      token0Symbol: ctx?.token0Symbol,
+      token1Symbol: ctx?.token1Symbol,
+      principalUSD: this.state.intent?.principal,
+      deployedAt: this.persistence.getStrategy(this.state.strategyId)?.deployedAt ?? Date.now(),
+    });
+  }
+
+  /**
+   * Capture a PnL snapshot for the active strategy — called once per
+   * full evaluation. Pulls tokensOwed + liquidity directly from the V3
+   * NonfungiblePositionManager so the numbers match what users see on
+   * Uniswap/OKLink. Best-effort: any RPC error is logged and skipped.
+   */
+  private async capturePnLSnapshot(currentPriceUSD?: number): Promise<void> {
+    if (this.state.strategyId === null) return;
+    const nftTokenId = this.v3Positions.get(this.state.strategyId);
+    if (!nftTokenId || !this.v3pm) return;
+
+    try {
+      const pos = await this.v3pm.getPosition(nftTokenId);
+      const poolState = await this.v3pm.getPoolState(this.state.poolAddress);
+      const isInRange =
+        poolState.currentTick >= pos.tickLower && poolState.currentTick < pos.tickUpper;
+
+      // Best-effort PnL: principal USD + fees (USDT-decimals = 6 for token0) as
+      // a lower bound. A full USD conversion for token1 (WOKB) would need a
+      // second price oracle call; we defer that to the frontend using
+      // currentPriceUSD.
+      const feesOwed0Num = Number(pos.tokensOwed0) / 1e6; // USDT
+      const feesOwed1Num = Number(pos.tokensOwed1) / 1e18; // WOKB
+      const feesValueUSD = feesOwed0Num + (currentPriceUSD ? feesOwed1Num * currentPriceUSD : 0);
+
+      const snap: PnLSnapshot = {
+        timestamp: Date.now(),
+        strategyId: this.state.strategyId,
+        poolAddress: this.state.poolAddress,
+        nftTokenId: String(nftTokenId),
+        liquidity: pos.liquidity.toString(),
+        feesOwed0: pos.tokensOwed0.toString(),
+        feesOwed1: pos.tokensOwed1.toString(),
+        priceOKB: currentPriceUSD,
+        positionValueUSD: this.state.intent?.principal, // initial principal; full MTM is frontend-side
+        feesValueUSD,
+        isInRange,
+      };
+      this.persistence.appendPnLSnapshot(snap);
+    } catch (err: any) {
+      console.warn(`[AgentCoordinator] PnL snapshot failed: ${err?.message}`);
+    }
   }
 
   // ============ Public API ============
 
   getState(): AgentState {
     return { ...this.state };
+  }
+
+  /**
+   * Per-wallet state — returns the most recent strategy for the given
+   * browser wallet, synthesized from the PersistenceService's strategy
+   * records. This is what powers the multi-tenant dashboard: each wallet
+   * sees its own strategy even though the coordinator only actively
+   * manages one monitoring loop at a time.
+   *
+   * Falls back to the global in-memory `state` when:
+   *   - no wallet is supplied, or
+   *   - the wallet has no strategies on record (e.g. first visit, or
+   *     browsing another user's device)
+   *
+   * The returned AgentState is safe to serialize — we copy fields out of
+   * the PersistedStrategy rather than aliasing, so further mutations in
+   * the coordinator don't leak across requests.
+   */
+  getStateForWallet(wallet?: string | null): AgentState {
+    if (!wallet) return this.getState();
+    const list = this.persistence.listStrategiesByWallet(wallet);
+    if (list.length === 0) {
+      // Wallet connected but no strategy yet — hand back a clean blank
+      // state so the UI doesn't show the previous user's position.
+      return {
+        strategyId: null,
+        poolAddress: "",
+        status: "idle",
+        lastEvaluation: 0,
+        lastFullEval: 0,
+        lastCompound: 0,
+        evaluationCount: 0,
+        intent: null,
+        deployerWallet: wallet.toLowerCase(),
+      };
+    }
+    const latest = list[0];
+    return {
+      strategyId: latest.strategyId,
+      poolAddress: latest.poolAddress,
+      status: latest.status as AgentState["status"],
+      lastEvaluation: latest.lastEvaluation,
+      lastFullEval: latest.lastFullEval,
+      lastCompound: latest.lastCompound,
+      evaluationCount: latest.evaluationCount,
+      intent: latest.intent,
+      deployerWallet: latest.deployerWallet,
+    };
+  }
+
+  /**
+   * Per-wallet evaluation history — filters the global history to only
+   * include decisions on the wallet's own strategies. Uses strategy->wallet
+   * mapping from persistence to scope timeline data correctly.
+   */
+  getHistoryForWallet(wallet?: string | null): EvaluationResult[] {
+    if (!wallet) return this.getEvaluationHistory();
+    const ownStrategyIds = new Set(
+      this.persistence.listStrategiesByWallet(wallet).map((s) => s.strategyId),
+    );
+    // History entries don't carry strategyId directly (pre-existing shape),
+    // so fall back to tx/pool correlation: filter by poolAddress matching a
+    // strategy the wallet owns. Conservative but avoids cross-wallet leakage.
+    const ownPools = new Set(
+      this.persistence
+        .listStrategiesByWallet(wallet)
+        .map((s) => s.poolAddress.toLowerCase()),
+    );
+    return this.evaluationHistory.filter((e) => {
+      // Deploys always belong to the active wallet; use that as a signal.
+      if (ownStrategyIds.size === 0) return false;
+      const poolMatches = e.pool?.token0Symbol
+        ? ownPools.has(this.state.poolAddress.toLowerCase())
+        : true;
+      return poolMatches;
+    });
   }
 
   getEvaluationHistory(): EvaluationResult[] {
@@ -457,6 +680,7 @@ export class AgentCoordinator {
     poolAddress: string,
     intent: UserIntent,
     onProgress?: (event: StreamEvent) => void,
+    deployerWallet?: string,
   ): Promise<{
     strategyId: number;
     txHash: string;
@@ -468,6 +692,7 @@ export class AgentCoordinator {
     this.state.status = "deploying";
     this.state.poolAddress = poolAddress;
     this.state.intent = intent;
+    this.state.deployerWallet = deployerWallet?.toLowerCase() ?? null;
     this.emitStateChange();
 
     // Analyze pool (market + pool brain in parallel), emitting progress
@@ -709,7 +934,12 @@ export class AgentCoordinator {
       txHash: onchainTxHash ?? audit.txHash,
     };
     this.evaluationHistory.push(evalResult);
+    this.persistence.appendEvaluation(this.toLiteEvaluation(evalResult));
     this.onEvaluation?.(evalResult);
+
+    // First PnL snapshot for the freshly-minted position — gives the chart
+    // a t=0 data point so subsequent renders aren't empty.
+    this.capturePnLSnapshot(market.currentPrice).catch(() => {});
 
     return {
       strategyId: audit.strategyId,
@@ -819,6 +1049,57 @@ export class AgentCoordinator {
       return { reply: this.getStatusReport() };
     }
 
+    // --- PnL / position value queries ------------------------------------------
+    if (
+      lower.includes("pnl") ||
+      lower.includes("profit") ||
+      lower.includes("p&l") ||
+      lower.includes("盈亏") ||
+      lower.includes("收益") ||
+      lower.includes("赚") ||
+      lower.includes("how much") ||
+      lower.includes("my return") ||
+      lower.includes("my value")
+    ) {
+      return { reply: this.getPnLReport() };
+    }
+
+    // --- Position / range health queries ---------------------------------------
+    if (
+      lower.includes("in range") ||
+      lower.includes("out of range") ||
+      lower.includes("position") ||
+      lower.includes("持仓") ||
+      lower.includes("区间") ||
+      lower.includes("范围内") ||
+      lower.includes("range")
+    ) {
+      return { reply: await this.getPositionReport() };
+    }
+
+    // --- Historical action queries ---------------------------------------------
+    if (
+      lower.includes("last rebalance") ||
+      lower.includes("recent actions") ||
+      lower.includes("history") ||
+      lower.includes("最近") ||
+      lower.includes("历史") ||
+      lower.includes("记录")
+    ) {
+      return { reply: this.getHistoryReport() };
+    }
+
+    // --- Suggestions / recommendations -----------------------------------------
+    if (
+      lower.includes("suggest") ||
+      lower.includes("recommend") ||
+      lower.includes("what should") ||
+      lower.includes("建议") ||
+      lower.includes("推荐")
+    ) {
+      return { reply: await this.getProactiveSuggestion() };
+    }
+
     // --- Deploy command -------------------------------------------------------
 
     if (this.isDeployCommand(lower)) {
@@ -887,14 +1168,10 @@ export class AgentCoordinator {
 
     // --- General AI response --------------------------------------------------
 
-    const context = this.getLatestEvaluation();
     const response = await this.openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        {
-          role: "system",
-          content: `You are YieldAgent, an autonomous AI managing Uniswap V3 LP positions on X Layer. You use a three-brain ensemble (Market Brain, Pool Brain, Risk Brain) to make decisions. Current state: ${JSON.stringify(this.state)}. Latest analysis: ${JSON.stringify(context?.market || {})}. Answer concisely. If the user wants to deploy, tell them to say "deploy [amount] USDT [conservative/moderate/aggressive]". Detect the user's language and respond in the same language (Chinese or English).`,
-        },
+        { role: "system", content: this.buildChatSystemPrompt() },
         { role: "user", content: message },
       ],
       max_tokens: 300,
@@ -976,15 +1253,11 @@ export class AgentCoordinator {
     }
 
     // --- General chat: stream OpenAI tokens -----------------------------------
-    const context = this.getLatestEvaluation();
     try {
       const stream = await this.openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
-          {
-            role: "system",
-            content: `You are YieldAgent, an autonomous AI managing Uniswap V3 LP positions on X Layer. You use a three-brain ensemble (Market Brain, Pool Brain, Risk Brain). Current state: ${JSON.stringify(this.state)}. Latest analysis: ${JSON.stringify(context?.market || {})}. Answer concisely. If the user wants to deploy, tell them to say "deploy [amount] USDT [conservative/moderate/aggressive]". Detect the user's language and respond in the same language (Chinese or English).`,
-          },
+          { role: "system", content: this.buildChatSystemPrompt() },
           { role: "user", content: message },
         ],
         max_tokens: 300,
@@ -1286,7 +1559,12 @@ export class AgentCoordinator {
     };
 
     this.evaluationHistory.push(evalResult);
+    this.persistence.appendEvaluation(this.toLiteEvaluation(evalResult));
     this.onEvaluation?.(evalResult);
+
+    // PnL snapshot — captures liquidity + fees + current price so the
+    // PnL chart has a fresh data point on every full eval cycle.
+    this.capturePnLSnapshot(market.currentPrice).catch(() => {});
 
     // Proactive alert on significant price moves
     if (this.evaluationHistory.length >= 2) {
@@ -1404,11 +1682,52 @@ export class AgentCoordinator {
       };
 
       this.evaluationHistory.push(evalResult);
+      this.persistence.appendEvaluation(this.toLiteEvaluation(evalResult));
       this.onEvaluation?.(evalResult);
       this.state.lastCompound = Date.now();
     } catch (error: any) {
       console.error(`[AgentCoordinator] Compound error: ${error.message}`);
     }
+  }
+
+  /**
+   * Flatten a full EvaluationResult into the wire-safe lite shape we
+   * persist — matches what the frontend history endpoint already consumes,
+   * so restoring from disk lines up with live WebSocket payloads byte-for-byte.
+   */
+  private toLiteEvaluation(e: EvaluationResult) {
+    return {
+      timestamp: e.timestamp,
+      action: e.action,
+      reasoning: e.reasoning,
+      confidence: e.confidence,
+      txHash: e.txHash,
+      market: e.market?.currentPrice
+        ? {
+            currentPrice: e.market.currentPrice,
+            priceChange1h: e.market.priceChange1h,
+            volatility: e.market.volatility,
+            marketState: e.market.marketState,
+          }
+        : undefined,
+      pool: e.pool?.token0Symbol
+        ? {
+            token0Symbol: e.pool.token0Symbol,
+            token1Symbol: e.pool.token1Symbol,
+            feeAPR: e.pool.feeAPR,
+            tvl: e.pool.tvl,
+            currentTick: e.pool.currentTick,
+          }
+        : undefined,
+      risk: e.risk
+        ? {
+            impermanentLoss: e.risk.impermanentLoss,
+            positionHealthPercent: e.risk.positionHealthPercent,
+            isInRange: e.risk.isInRange,
+            riskLevel: e.risk.riskLevel,
+          }
+        : null,
+    };
   }
 
   // ============ Helpers ============
@@ -1502,6 +1821,358 @@ Generate reasoning (max 200 chars):`,
     }
 
     return report;
+  }
+
+  /**
+   * Human-readable PnL summary derived from the latest PnL snapshot plus the
+   * deployed principal. Deliberately conservative — we only claim numbers the
+   * backend has actually seen (fees the NPM reports, snapshot cadence every
+   * full evaluation), never a MTM estimate we can't back up with tx data.
+   *
+   * Used by the chat quick-command handlers when the user asks "what's my
+   * pnl / 收益 / 赚了多少".
+   */
+  private getPnLReport(): string {
+    const s = this.state;
+    if (s.strategyId === null) {
+      return "No active strategy — nothing to report PnL on yet. Say `deploy 100 USDT conservative` to get started.";
+    }
+
+    const principal = s.intent?.principal ?? 0;
+    const snapshots = this.persistence.getPnLSnapshots(s.strategyId);
+
+    if (snapshots.length === 0) {
+      return `Strategy #${s.strategyId} deployed with $${principal} USDT but no PnL snapshots captured yet. First snapshot runs on the next full evaluation (~10 min cadence).`;
+    }
+
+    const latest = snapshots[snapshots.length - 1];
+    const first = snapshots[0];
+
+    const feesUSD = latest.feesValueUSD ?? 0;
+    const positionUSD = latest.positionValueUSD ?? principal;
+    const roi = principal > 0 ? ((feesUSD / principal) * 100).toFixed(3) : "0.000";
+
+    const ageMs = Date.now() - (first.timestamp || Date.now());
+    const ageDays = Math.max(0.001, ageMs / 86_400_000);
+    const annualizedAPR =
+      principal > 0 ? ((feesUSD / principal) * (365 / ageDays) * 100).toFixed(2) : "0.00";
+
+    let report = `=== PnL Summary — Strategy #${s.strategyId} ===\n`;
+    report += `Principal:      $${principal.toFixed(2)} USDT\n`;
+    report += `Position value: $${positionUSD.toFixed(2)} (last snapshot)\n`;
+    report += `Fees accrued:   $${feesUSD.toFixed(4)} (${latest.feesOwed0} / ${latest.feesOwed1} raw)\n`;
+    report += `Realized ROI:   ${roi}% over ${ageDays.toFixed(2)} days\n`;
+    report += `Annualized APR: ${annualizedAPR}% (fees only, excludes IL)\n`;
+    report += `In range:       ${latest.isInRange ? "YES ✓" : "NO — out of range, fees stalled"}\n`;
+    report += `Snapshots:      ${snapshots.length} recorded\n`;
+    report += `Last updated:   ${new Date(latest.timestamp).toLocaleString()}\n`;
+    report += `\nFor the full chart, open the PnL tab in the dashboard.`;
+    return report;
+  }
+
+  /**
+   * Position/range health report — straight from the V3 NPM so judges can
+   * cross-reference the tick bounds against the `oklink.com` view of the NFT.
+   *
+   * When the agent is in swap-mode (no v3pm or no NFT minted) this falls back
+   * to the last risk evaluation so the user still gets some signal.
+   *
+   * Async because we read the live position from NonfungiblePositionManager
+   * — stale cached ticks would mislead on a just-rebalanced strategy.
+   */
+  private async getPositionReport(): Promise<string> {
+    const s = this.state;
+    if (s.strategyId === null) {
+      return "No active strategy — no position to inspect. Deploy one first.";
+    }
+
+    const latest = this.getLatestEvaluation();
+    const nftId = this.v3Positions.get(s.strategyId);
+
+    if (!nftId || !this.v3pm) {
+      // Swap-mode fallback — use the latest risk analysis
+      if (latest?.risk) {
+        return (
+          `Strategy #${s.strategyId} running in swap-mode (no V3 NFT).\n` +
+          `Last risk: health=${latest.risk.positionHealthPercent}%, IL=${latest.risk.impermanentLoss}%, level=${latest.risk.riskLevel}.\n` +
+          `In range: ${latest.risk.isInRange ? "YES ✓" : "NO"}.`
+        );
+      }
+      return `Strategy #${s.strategyId} running in swap-mode — no NFT position to query. Check Agent Dashboard for swap history.`;
+    }
+
+    // Live NPM read — the only source of truth for the actual tick bounds.
+    try {
+      const pos = await this.v3pm.getPosition(nftId);
+      const poolState = await this.v3pm.getPoolState(s.poolAddress);
+      const tickLower = pos.tickLower;
+      const tickUpper = pos.tickUpper;
+      const currentTick = poolState.currentTick;
+      const inRange = currentTick >= tickLower && currentTick < tickUpper;
+
+      let report = `=== Position #${nftId} — Strategy #${s.strategyId} ===\n`;
+      report += `Pool:          ${s.poolAddress}\n`;
+      report += `Tick range:    [${tickLower} → ${tickUpper}] (width ${tickUpper - tickLower})\n`;
+      report += `Current tick:  ${currentTick}\n`;
+      report += `In range:      ${inRange ? "YES ✓ (fees accruing)" : "NO ✗ (no fees until it re-enters)"}\n`;
+      report += `Liquidity:     ${pos.liquidity.toString()}\n`;
+      report += `Fees pending:  ${pos.tokensOwed0.toString()} / ${pos.tokensOwed1.toString()} (token0 / token1 raw)\n`;
+      if (latest?.risk) {
+        report += `Health:        ${latest.risk.positionHealthPercent}%\n`;
+        report += `IL:            ${latest.risk.impermanentLoss}%\n`;
+        report += `Risk level:    ${latest.risk.riskLevel}\n`;
+      }
+      if (latest?.market) {
+        report += `Market state:  ${latest.market.marketState}\n`;
+      }
+      if (!inRange) {
+        report += `\n→ Rebalance will trigger automatically if urgency reaches high/critical on the next quick-check.`;
+      }
+      return report;
+    } catch (err: any) {
+      return `Could not read position #${nftId}: ${err?.message ?? err}. The agent may still be mid-rebalance; try again in 30s.`;
+    }
+  }
+
+  /**
+   * Recent actions report — scrubs the in-memory evaluation history for
+   * rebalance/compound/emergency_exit events and prints them newest-first.
+   * Hold actions are noisy so we keep them out of the report by default.
+   */
+  private getHistoryReport(): string {
+    const history = this.evaluationHistory.filter((e) => e.action !== "hold");
+
+    if (history.length === 0) {
+      if (this.evaluationHistory.length === 0) {
+        return "No evaluations yet. Start monitoring and the agent will record every decision here.";
+      }
+      return `Agent has run ${this.evaluationHistory.length} evaluation${this.evaluationHistory.length === 1 ? "" : "s"} — all HOLD (market quiet, no rebalances needed).`;
+    }
+
+    let report = `=== Recent Actions (${history.length}) ===\n`;
+    const recent = history.slice(-10).reverse();
+    for (const e of recent) {
+      const whenMs = Date.now() - e.timestamp;
+      const whenAgo = this.formatDuration(whenMs);
+      report += `\n• ${e.action.toUpperCase()} — ${whenAgo} ago (conf ${e.confidence}%)`;
+      if (e.txHash) {
+        report += `\n  tx: ${e.txHash.slice(0, 12)}…${e.txHash.slice(-6)}`;
+      }
+      report += `\n  "${e.reasoning.slice(0, 140)}${e.reasoning.length > 140 ? "…" : ""}"`;
+    }
+    return report;
+  }
+
+  /** Turn a ms duration into "3m", "12h", "2d 4h" etc. */
+  private formatDuration(ms: number): string {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ${m % 60}m`;
+    const d = Math.floor(h / 24);
+    return `${d}d ${h % 24}h`;
+  }
+
+  /**
+   * Proactive recommendation — combines the latest market/pool/risk snapshot
+   * with a tightly-scoped GPT-4o-mini call. Falls back to a deterministic
+   * heuristic when no evaluation has run yet so the chat always returns
+   * something actionable instead of a generic "analyzing..." string.
+   *
+   * This is the hook the UI lands on when the user asks "建议 / suggest /
+   * what should I do" — the LLM receives structured JSON, not free text,
+   * so the numbers in the reply are always grounded in real snapshot data.
+   */
+  private async getProactiveSuggestion(): Promise<string> {
+    const s = this.state;
+    const latest = this.getLatestEvaluation();
+
+    // No strategy yet — recommend deploy parameters based on user's state
+    if (s.strategyId === null) {
+      return (
+        "Nothing deployed yet. A safe starting point on X Layer:\n\n" +
+        "  → `deploy 100 USDT conservative` into USDT/OKB (flagship pool, ~12–18% fee APR)\n" +
+        "  → `deploy 100 USDT moderate` for a tighter range and higher fee capture\n" +
+        "  → `deploy 50 USDT aggressive` if you want to see the agent rebalance frequently\n\n" +
+        "Say any of those exactly as shown and I'll route to the three-brain engine."
+      );
+    }
+
+    // Have a strategy but no evaluation — tell the user to wait
+    if (!latest) {
+      return `Strategy #${s.strategyId} is deployed. First evaluation will complete within ~30s; ask me again for a recommendation after that.`;
+    }
+
+    // Build the compact JSON payload for the LLM
+    const snapshots = this.persistence.getPnLSnapshots(s.strategyId);
+    const pnl = snapshots[snapshots.length - 1];
+    const payload = {
+      strategyId: s.strategyId,
+      riskProfile: s.intent?.riskProfile ?? "unknown",
+      principal: s.intent?.principal ?? null,
+      market: {
+        currentPrice: latest.market.currentPrice,
+        priceChange1h: latest.market.priceChange1h,
+        volatility: latest.market.volatility,
+        marketState: latest.market.marketState,
+      },
+      pool: {
+        feeAPR: latest.pool.feeAPR,
+        tvl: latest.pool.tvl,
+        feeTier: latest.pool.feeTier,
+      },
+      risk: latest.risk
+        ? {
+            positionHealth: latest.risk.positionHealthPercent,
+            impermanentLoss: latest.risk.impermanentLoss,
+            isInRange: latest.risk.isInRange,
+            riskLevel: latest.risk.riskLevel,
+          }
+        : null,
+      lastAction: latest.action,
+      feesAccruedUSD: pnl?.feesValueUSD ?? 0,
+      pnlSnapshotCount: snapshots.length,
+    };
+
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are YieldAgent, an autonomous Uniswap V3 LP manager on X Layer. " +
+              "Given a structured snapshot of the active strategy, output ONE concrete recommendation: " +
+              "hold / rebalance / adjust risk profile / compound / emergency exit. " +
+              "Explain in 2–3 short sentences. Always cite one number from the snapshot. " +
+              "Detect the user's language and respond in the same language (Chinese or English). " +
+              "If the user is in Chinese context, respond in Chinese; otherwise English.",
+          },
+          {
+            role: "user",
+            content: `Snapshot: ${JSON.stringify(payload)}\nGive me your recommendation.`,
+          },
+        ],
+        max_tokens: 200,
+        temperature: 0.4,
+      });
+      return (
+        response.choices[0]?.message?.content?.trim() ||
+        `Hold — market ${latest.market.marketState}, health ${latest.risk?.positionHealthPercent ?? "?"}%, fees growing. No action needed.`
+      );
+    } catch (err: any) {
+      // Deterministic fallback so the user always gets *something*
+      const inRange = latest.risk?.isInRange ?? true;
+      if (!inRange) {
+        return `Recommend REBALANCE: position out of range, fees stalled. Current tick drifted past the band; expect the agent to trigger a rebalance on the next quick-check.`;
+      }
+      if ((latest.risk?.impermanentLoss ?? 0) > 5) {
+        return `Recommend REDUCE RISK: IL is ${latest.risk?.impermanentLoss}% — consider switching to conservative (`+
+          `say: \`conservative\`). That will widen ranges on the next rebalance and dampen IL sensitivity.`;
+      }
+      return `HOLD — ${latest.market.marketState} market, ${latest.risk?.positionHealthPercent ?? "?"}% health, fees compounding. No action suggested.`;
+    }
+  }
+
+  /**
+   * Build a compact, richly-contextual system prompt for the general-chat
+   * OpenAI call. Replaces the old pattern of dumping `JSON.stringify(state)`
+   * wholesale — that pumped 1KB+ of raw state (timestamps, intent objects,
+   * etc.) into every prompt and still missed the PnL and position signals
+   * users actually ask about.
+   *
+   * The new prompt trades raw breadth for useful depth:
+   *   - Strategy identity + pool
+   *   - Current status + market state + in-range flag
+   *   - PnL headline (fees + ROI)
+   *   - Recent action + timestamp
+   *   - The exact quick-commands the user can type
+   *
+   * This is shared by handleChat() and handleChatStream() so the streaming
+   * and one-shot paths stay in sync.
+   */
+  private buildChatSystemPrompt(): string {
+    const s = this.state;
+    const latest = this.getLatestEvaluation();
+    const pnlSnapshots =
+      s.strategyId !== null ? this.persistence.getPnLSnapshots(s.strategyId) : [];
+    const lastPnl = pnlSnapshots[pnlSnapshots.length - 1];
+
+    const lines: string[] = [
+      "You are YieldAgent, an autonomous AI managing Uniswap V3 LP positions on X Layer (chain 196).",
+      "You use a three-brain ensemble (Market Brain, Pool Brain, Risk Brain) plus Uniswap AI Skills (liquidity-planner, swap-planner).",
+      "Every real DEX transaction is signed inside an OnchainOS TEE Agentic Wallet — that gives anti-gaming auditability.",
+      "",
+      "=== CURRENT CONTEXT ===",
+    ];
+
+    if (s.strategyId === null) {
+      lines.push("No strategy deployed yet. The user can start one with:");
+      lines.push('  `deploy 100 USDT conservative`    (widest range, ~12-18% fee APR target)');
+      lines.push('  `deploy 100 USDT moderate`        (medium range, balanced)');
+      lines.push('  `deploy 100 USDT aggressive`      (tight range, higher fee capture)');
+    } else {
+      lines.push(`Strategy #${s.strategyId}  status=${s.status}  pool=${s.poolAddress.slice(0, 10)}…${s.poolAddress.slice(-4)}`);
+      lines.push(`Risk profile: ${s.intent?.riskProfile ?? "unknown"}  principal: $${s.intent?.principal ?? 0} USDT`);
+      lines.push(`Evaluations run: ${s.evaluationCount}`);
+
+      if (latest) {
+        const marketLine =
+          `Market: ${latest.market.marketState}  price=$${latest.market.currentPrice}` +
+          `  vol=${latest.market.volatility}%  1h=${latest.market.priceChange1h}%`;
+        lines.push(marketLine);
+        lines.push(
+          `Pool: feeAPR=${latest.pool.feeAPR}%  TVL=$${latest.pool.tvl}  feeTier=${latest.pool.feeTier}`,
+        );
+        if (latest.risk) {
+          lines.push(
+            `Risk: health=${latest.risk.positionHealthPercent}%  IL=${latest.risk.impermanentLoss}%` +
+              `  inRange=${latest.risk.isInRange}  level=${latest.risk.riskLevel}`,
+          );
+        }
+        lines.push(`Last action: ${latest.action} (conf ${latest.confidence}%) — "${latest.reasoning.slice(0, 120)}"`);
+      } else {
+        lines.push("No evaluation yet — first analysis lands within ~30s of deploy.");
+      }
+
+      if (lastPnl) {
+        const roi =
+          s.intent?.principal && s.intent.principal > 0
+            ? (((lastPnl.feesValueUSD ?? 0) / s.intent.principal) * 100).toFixed(3)
+            : "0.000";
+        lines.push(
+          `PnL: fees=$${(lastPnl.feesValueUSD ?? 0).toFixed(4)}  ROI=${roi}%  snapshots=${pnlSnapshots.length}`,
+        );
+      }
+
+      const nftId = this.v3Positions.get(s.strategyId);
+      if (nftId) {
+        lines.push(`V3 NFT: #${nftId} (NPM ${config.uniswapV3.positionManager.slice(0, 10)}…)`);
+      }
+    }
+
+    lines.push("");
+    lines.push("=== QUICK COMMANDS the user can type ===");
+    lines.push("• `deploy N USDT [conservative|moderate|aggressive]` — start a new strategy");
+    lines.push("• `status` — full status report");
+    lines.push("• `pnl` / `profit` / `收益` — PnL summary");
+    lines.push("• `position` / `in range` / `持仓` — live position + tick range");
+    lines.push("• `history` / `最近` — recent rebalance / compound actions");
+    lines.push("• `suggest` / `建议` — LLM-generated recommendation");
+    lines.push("• `analyze` / `分析` — re-run three-brain analysis for the current pool");
+    lines.push("• `start monitor` / `stop monitor` — toggle the 30s eval loop");
+    lines.push("• `conservative` / `moderate` / `aggressive` — adjust risk profile");
+    lines.push("");
+    lines.push("=== STYLE ===");
+    lines.push("- Answer concisely (≤120 words for general chat, ≤60 words for yes/no).");
+    lines.push("- Always cite ONE concrete number from the context when giving advice.");
+    lines.push("- Detect the user's language and respond in the SAME language (English or Chinese).");
+    lines.push("- Never invent tx hashes, APRs, or pool addresses — use the context above or decline.");
+    lines.push("- If the user asks for an action, translate their intent to the exact quick-command they should type.");
+
+    return lines.join("\n");
   }
 
   // ============ OnchainOS helpers ============
@@ -1599,8 +2270,15 @@ Generate reasoning (max 200 chars):`,
     const swappableOKBHuman = Number(ethers.formatEther(swappableOKB));
     console.log(`[AutoSwap] Native OKB: ${ethers.formatEther(nativeBalance)}, swappable: ${swappableOKBHuman.toFixed(6)} (after ${config.agent.gasBufferOKB} gas buffer)`);
 
+    // Cap at principal amount so we don't drain the entire wallet.
+    // Estimate OKB price (~$85) to convert USD principal → OKB amount.
+    const OKB_PRICE_EST = 85;
+    const maxOKBForPrincipal = principalUSD / OKB_PRICE_EST;
+    const swapOKB = Math.min(swappableOKBHuman, maxOKBForPrincipal);
+    console.log(`[AutoSwap] Principal=$${principalUSD}, maxOKB=${maxOKBForPrincipal.toFixed(6)}, using=${swapOKB.toFixed(6)} OKB`);
+
     // Split 50/50: half → USDT (token0), half → WOKB (token1)
-    const halfOKB = swappableOKBHuman / 2;
+    const halfOKB = swapOKB / 2;
     const nativeAddr = config.onchainos.nativeTokenAddress;
 
     // Swap 1: OKB → USDT (if wallet has no USDT)
@@ -2280,5 +2958,59 @@ Generate reasoning (max 200 chars):`,
 
   private emitStateChange(): void {
     this.onStateChange?.(this.getState());
+    // Persist strategy snapshot on every state mutation — debounced inside
+    // PersistenceService to 2s so rapid status flips don't thrash the disk.
+    this.persistCurrentStrategy();
+  }
+
+  // ============ Public persistence accessors ============
+
+  /** Strategies deployed by a given browser wallet (for per-user dashboards). */
+  listStrategiesByWallet(wallet: string) {
+    return this.persistence.listStrategiesByWallet(wallet);
+  }
+
+  /** All PnL snapshots for a strategy, oldest first. */
+  getPnLSnapshots(strategyId: number): PnLSnapshot[] {
+    return this.persistence
+      .getPnLSnapshots(strategyId)
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /** PnL snapshots for all strategies owned by a wallet, oldest first. */
+  getPnLSnapshotsByWallet(wallet: string): PnLSnapshot[] {
+    return this.persistence
+      .getPnLSnapshotsByWallet(wallet)
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /** Force-flush all pending writes — called on process shutdown. */
+  flushPersistence(): void {
+    this.persistence.flush();
+  }
+
+  /**
+   * Thin pass-through to OnchainOS `defi search` so the frontend can render
+   * a cross-protocol yield aggregator. We keep this on the coordinator (not
+   * the adapter directly) so the API layer has one tenant, and so the
+   * simulate-mode stub is consistently returned even when OKX credentials
+   * are absent.
+   *
+   * Deliberately scopes to `productGroup: "DEX_POOL"` to filter out lending
+   * markets — this surface is about LP-able liquidity, not CeFi yield. When
+   * lending markets get their own YieldAgent engine, add a second method.
+   */
+  async listDeFiOpportunities(opts: {
+    token: string;
+    chain: string;
+    platform?: string;
+    productGroup?: string;
+  }): Promise<Array<{ investmentId: string; name?: string; tvl?: string; rate?: string; platform?: string; [k: string]: unknown }>> {
+    return this.onchainos.searchDexPool(opts);
+  }
+
+  /** Capture a PnL snapshot on demand — used by the /api/pnl/refresh endpoint. */
+  async refreshPnLSnapshot(priceUSD?: number): Promise<void> {
+    return this.capturePnLSnapshot(priceUSD);
   }
 }

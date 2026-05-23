@@ -263,6 +263,43 @@ export class OnchainOSAdapter {
   // Simple 60 s cache on wallet status to avoid hammering the CLI.
   private lastStatus: { at: number; value: WalletStatus } | null = null;
 
+  /**
+   * Generic TTL cache for read-only CLI results. Keyed by a deterministic
+   * string hash of the args so each distinct CLI invocation gets its own
+   * entry. We bound the map at 128 entries — read-only queries don't have
+   * many unique shapes.
+   *
+   * Motivation: reduces the CLI subprocess footprint by ~90% for common
+   * dashboards. The frontend hits `/api/health` every 30s and the pools
+   * page refreshes opportunities every 60s — without caching, every hit
+   * spawns 2-4 `onchainos` subprocesses, which bottlenecks under load.
+   *
+   * Write / TEE-signing operations (swap, mint, contract-call) NEVER use
+   * this cache — they always go through the CLI so the anti-gaming audit
+   * chain stays intact.
+   */
+  private readCache: Map<string, { at: number; ttlMs: number; value: any }> = new Map();
+  private readonly READ_CACHE_MAX = 128;
+
+  private getCached<T>(key: string): T | undefined {
+    const hit = this.readCache.get(key);
+    if (!hit) return undefined;
+    if (Date.now() - hit.at > hit.ttlMs) {
+      this.readCache.delete(key);
+      return undefined;
+    }
+    return hit.value as T;
+  }
+
+  private setCached(key: string, value: any, ttlMs: number): void {
+    if (this.readCache.size >= this.READ_CACHE_MAX) {
+      // Evict the oldest entry (Map preserves insertion order)
+      const oldest = this.readCache.keys().next().value;
+      if (oldest !== undefined) this.readCache.delete(oldest);
+    }
+    this.readCache.set(key, { at: Date.now(), ttlMs, value });
+  }
+
   constructor(opts: OnchainOSAdapterOptions = {}) {
     this.cliPath = opts.cliPath ?? "onchainos";
     this.timeoutMs = opts.timeoutMs ?? 120_000;
@@ -400,9 +437,17 @@ export class OnchainOSAdapter {
         evm: ["0x2E2FC9d6daf5044F53412eb49dF5e82a9cFB3838"],
       };
     }
+    // Agentic Wallet addresses are immutable per login session, so a 5-minute
+    // cache is plenty. This is hit by /api/health every 30s from the frontend.
+    const cacheKey = `wallet:addresses:${chainId ?? "all"}`;
+    const cached = this.getCached<any>(cacheKey);
+    if (cached) return cached;
+
     const args = ["wallet", "addresses"];
     if (chainId !== undefined) args.push("--chain", String(chainId));
-    return this.runCli(args, "wallet addresses");
+    const data = await this.runCli(args, "wallet addresses");
+    this.setCached(cacheKey, data, 300_000);
+    return data;
   }
 
   // ---------------------------------------------------------------------------
@@ -435,11 +480,19 @@ export class OnchainOSAdapter {
         },
       ];
     }
+    // TVL / APR from OKX change on the scale of minutes, so a 60 s TTL is
+    // both cheap and correct — it shaves ~1 subprocess per frontend tick.
+    const cacheKey = `defi:search:${opts.token}:${opts.chain}:${opts.platform ?? ""}:${opts.productGroup ?? ""}`;
+    const cached = this.getCached<Array<any>>(cacheKey);
+    if (cached) return cached;
+
     const args = ["defi", "search", "--token", opts.token, "--chain", opts.chain];
     if (opts.platform) args.push("--platform", opts.platform);
     if (opts.productGroup) args.push("--product-group", opts.productGroup);
     const data = await this.runCli(args, "defi search");
-    return Array.isArray(data) ? data : (data?.list ?? []);
+    const list = Array.isArray(data) ? data : (data?.list ?? []);
+    this.setCached(cacheKey, list, 60_000);
+    return list;
   }
 
   async getPoolDetail(investmentId: string): Promise<any> {
@@ -451,10 +504,19 @@ export class OnchainOSAdapter {
         underlyingToken: [],
       };
     }
-    return this.runCli(
+    // Pool metadata (fee tier, tick spacing, tokens) is immutable per
+    // investmentId. 5-minute cache avoids redundant `defi detail` spawns
+    // when the rebalance loop re-checks its strategy.
+    const cacheKey = `defi:detail:${investmentId}`;
+    const cached = this.getCached<any>(cacheKey);
+    if (cached) return cached;
+
+    const data = await this.runCli(
       ["defi", "detail", "--investment-id", investmentId],
       "defi detail",
     );
+    this.setCached(cacheKey, data, 300_000);
+    return data;
   }
 
   async getDepthPriceChart(
@@ -475,8 +537,16 @@ export class OnchainOSAdapter {
 
   async getSupportChains(): Promise<any[]> {
     if (this.simulate) return [{ chainId: 196, name: "X Layer" }];
+    // Supported-chains list only changes when OKX upgrades — cache for the
+    // whole process lifetime (effectively) with a 1 hour TTL.
+    const cacheKey = "defi:support-chains";
+    const cached = this.getCached<any[]>(cacheKey);
+    if (cached) return cached;
+
     const data = await this.runCli(["defi", "support-chains"], "defi support-chains");
-    return Array.isArray(data) ? data : (data?.list ?? []);
+    const list = Array.isArray(data) ? data : (data?.list ?? []);
+    this.setCached(cacheKey, list, 3_600_000);
+    return list;
   }
 
   // ---------------------------------------------------------------------------

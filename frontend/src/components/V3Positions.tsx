@@ -5,7 +5,6 @@ import { api, V3PositionsResponse, V3PoolState } from "@/lib/api";
 import { useAgentState } from "@/lib/hooks";
 import { useAccount } from "wagmi";
 import { Lock } from "lucide-react";
-import { ownsStrategy } from "@/lib/strategyOwnership";
 
 const POOL_ADDRESS = "0x63d62734847E55A266FCa4219A9aD0a02D5F6e02";
 
@@ -28,11 +27,11 @@ export function V3Positions() {
   const { state } = useAgentState();
   const { isConnected, address } = useAccount();
 
-  // Gate 1: wallet must be connected
-  // Gate 2: user must have deployed a strategy (strategyId exists in agent state)
-  // Gate 3: connected wallet must be the one that deployed this strategy
+  // Server-side ownership: backend records `deployerWallet` per strategy.
+  // Only the wallet that deployed the strategy can view its LP positions.
   const hasStrategy = state?.strategyId !== null && state?.strategyId !== undefined;
-  const isOwner = isConnected && address && hasStrategy && ownsStrategy(address, state!.strategyId!);
+  const isOwner = isConnected && address && hasStrategy &&
+    state?.deployerWallet?.toLowerCase() === address.toLowerCase();
   const canView = isOwner;
 
   useEffect(() => {
@@ -87,7 +86,7 @@ export function V3Positions() {
     );
   }
 
-  // Gate: wallet connected but no strategy deployed OR not the deployer
+  // Gate: wallet connected but no strategy or not the deployer
   if (!hasStrategy || !isOwner) {
     return (
       <div className="rounded-xl bg-white/5 border border-white/10 p-6">
@@ -104,10 +103,8 @@ export function V3Positions() {
           </p>
           <p className="text-white/30 text-xs">
             {!hasStrategy
-              ? "Deploy a strategy above to mint a V3 LP position. Your positions will appear here."
-              : "This strategy was deployed by another wallet. Only the deployer can view LP positions."}
-            <br />
-            Other users&apos; positions are only visible on the Agent Leaderboard.
+              ? "Deploy a strategy above to mint a V3 LP position."
+              : "This strategy was deployed by a different wallet. Deploy your own to see LP here."}
           </p>
         </div>
       </div>

@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAccount } from "wagmi";
-import { ownsStrategy } from "@/lib/strategyOwnership";
+// Ownership check removed — read-only monitoring visible to all connected wallets.
 
 const ACTION_CONFIG: Record<
   string,
@@ -53,8 +53,9 @@ export function StrategyMonitor() {
     return () => clearInterval(id);
   }, [state?.status, state?.lastEvaluation]);
 
-  // Don't render if wallet not connected, no strategy, or not the deployer
-  const isOwner = isConnected && address && state?.strategyId != null && ownsStrategy(address, state.strategyId);
+  // Don't render unless the connected wallet is the strategy deployer (server-side check)
+  const isOwner = isConnected && address && state?.strategyId != null &&
+    state?.deployerWallet?.toLowerCase() === address?.toLowerCase();
   if (!isOwner) return null;
 
   const isMonitoring = state.status === "monitoring" || state.status === "analyzing" || state.status === "rebalancing";

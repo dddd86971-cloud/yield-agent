@@ -5,14 +5,14 @@ import { DecisionLog } from "@/components/DecisionLog";
 import { useAgentState } from "@/lib/hooks";
 import { BookOpen, Activity, RotateCw, Coins, AlertTriangle, Lock } from "lucide-react";
 import { useAccount } from "wagmi";
-import { ownsStrategy } from "@/lib/strategyOwnership";
 
 export default function DecisionsPage() {
   const { history, state } = useAgentState();
   const { isConnected, address } = useAccount();
 
-  // Gate: only the strategy deployer can see decision stats
-  const isOwner = isConnected && address && state?.strategyId != null && ownsStrategy(address, state.strategyId);
+  // Server-side ownership: only the deployer wallet can see decision stats.
+  const canView = isConnected && address && state?.strategyId != null &&
+    state?.deployerWallet?.toLowerCase() === address?.toLowerCase();
 
   const stats = {
     total: history.length,
@@ -43,17 +43,17 @@ export default function DecisionsPage() {
           </p>
         </div>
 
-        {!isOwner ? (
-          /* Locked state — wallet not connected or not the deployer */
+        {!canView ? (
+          /* Locked state — wallet not connected or no strategy yet */
           <div className="card text-center py-16">
             <Lock className="w-10 h-10 text-white/15 mx-auto mb-4" />
             <div className="text-lg font-bold text-white/40 mb-2">
-              {!isConnected ? "Connect Wallet to View Decisions" : "No Strategy Found"}
+              {!isConnected ? "Connect Wallet to View Decisions" : "No Strategy Active"}
             </div>
             <div className="text-sm text-white/30 max-w-md mx-auto">
               {!isConnected
-                ? "Your AI decision history is private. Connect your wallet to view decisions for strategies you deployed."
-                : "Deploy a strategy from the Agent Dashboard first. Only the deployer can view their strategy's decision log."}
+                ? "Connect your wallet to view the agent's on-chain decision history."
+                : "Deploy a strategy from the Agent Dashboard first. Decision history will appear here."}
             </div>
           </div>
         ) : (
