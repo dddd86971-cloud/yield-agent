@@ -21,13 +21,14 @@ library Config {
     // X Layer common tokens (verify these for your testnet/staging variant)
     // ─────────────────────────────────────────────────────────────────────
 
-    /// @dev USDT on X Layer mainnet (6 decimals)
-    address internal constant USDT = 0x1E4a5963aBFD975d8c9021ce480b42188849D41d;
+    /// @dev USDT (USD₮0) on X Layer mainnet (6 decimals). Verified on-chain May 2026:
+    ///      this is the bridged Tether deployment OKX uses for X Layer withdrawals.
+    address internal constant USDT = 0x779Ded0c9e1022225f8E0630b35a9b54bE713736;
 
     /// @dev WOKB on X Layer mainnet (18 decimals)
     address internal constant WOKB = 0xe538905cf8410324e03A5A23C1c177a474D59b2b;
 
-    /// @dev USDC.e on X Layer mainnet (6 decimals) — alternative stake token
+    /// @dev USDC on X Layer mainnet (6 decimals) — alternative stake token
     address internal constant USDC_E = 0x74b7F16337b8972027F6196A17a631aC6dE26d22;
 
     // ─────────────────────────────────────────────────────────────────────
