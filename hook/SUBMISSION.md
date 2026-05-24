@@ -79,27 +79,41 @@ A **mathematical performance floor**: if the manager doesn't deliver promised AP
 
 ## 4. Live Verification
 
-### Deployed Contracts (X Layer Mainnet, Chain ID 196)
+### Deployed Contracts (X Layer Mainnet, Chain ID 196) ✅ LIVE
 
-After running `script/DeployHook.s.sol` and `script/InitPool.s.sol`, the following addresses will be appended here:
+Broadcast 2026-05-24:
 
 | Contract | Address | OKLink |
 |----------|---------|--------|
-| AgentRegistry | _(to be filled after deploy)_ | _(link)_ |
-| AgentArenaHook | _(to be filled after deploy)_ | _(link)_ |
-| V4 Pool (USDT/WOKB w/ DynamicFee) | PoolId: _(to be filled)_ | _(link)_ |
+| **AgentRegistry** | `0x93F88966879E2AcaE3FdDEC08DAb6CbD4ab8d141` | [oklink.com/xlayer/address/0x93F8…d141](https://www.oklink.com/xlayer/address/0x93F88966879E2AcaE3FdDEC08DAb6CbD4ab8d141) |
+| **AgentArenaHook** | `0x25ff94A5E694343F2919A693E5ab9AFF2E825AC0` | [oklink.com/xlayer/address/0x25ff…5AC0](https://www.oklink.com/xlayer/address/0x25ff94A5E694343F2919A693E5ab9AFF2E825AC0) |
+| **V4 Pool (USDT/WOKB, dynamic fee)** | PoolId `0xae2fec12631fc349f8d96e203f19f68d92f3d20eca53c5aee4dcb2ca4a9916e7` | bound to PoolManager `0x360E…fb32` |
 
-### Live Activity
+Verify hook permissions:
+- Lower-14 bits of `0x25ff94A5E694343F2919A693E5ab9AFF2E825AC0` = `0x1AC0` ✓ matches `AFTER_INIT | BEFORE_ADD_LIQ | BEFORE_REMOVE_LIQ | BEFORE_SWAP | AFTER_SWAP`.
 
-| Activity | Tx Hash |
-|----------|---------|
-| AgentRegistry deployment | _(to be filled)_ |
-| AgentArenaHook deployment | _(to be filled)_ |
-| YieldAgent registration | _(to be filled)_ |
-| First StrategyBond submission | _(to be filled)_ |
-| First election | _(to be filled)_ |
-| First swap (hook fired) | _(to be filled)_ |
-| First settlement (slash or reward) | _(to be filled)_ |
+### Live On-Chain Activity (verified tx hashes)
+
+| Activity | Tx Hash | Status |
+|----------|---------|--------|
+| **AgentRegistry deploy** | [`0x47602…85888`](https://www.oklink.com/xlayer/tx/0x4760268addd9203de03a0f87358427b633ab535138fe10f82011163579085888) | ✅ |
+| **AgentArenaHook deploy** (CREATE2 mined) | [`0x62374…ee986`](https://www.oklink.com/xlayer/tx/0x6237e4f9d28f2eb2511547b0ede5ef27e7f78c5531ebe57ed16492fcb3eee986) | ✅ |
+| **Authorize hook in registry** | [`0x58001…38002`](https://www.oklink.com/xlayer/tx/0x580014517f27f870729a0a6611af21721a3b68e04794573e5c3dccbf31a38002) | ✅ |
+| **V4 Pool initialize (afterInitialize fired)** | [`0xfd23a…d7748`](https://www.oklink.com/xlayer/tx/0xfd23a9ea17e3c4353a95494fa24407a27402e83f6fb771e7f06e42573f0d7748) | ✅ |
+| **USDT approve for stake** | [`0xe358a…4dbd4`](https://www.oklink.com/xlayer/tx/0xe358a093f63f6401c690ecf6b30dcf7f95018b4b90f042590bd3982332c4dbd4) | ✅ |
+| **YieldAgent registration** | [`0x1efab…930ff0`](https://www.oklink.com/xlayer/tx/0x1efab864c5d145694ded8feb5003761ffc7e5d16293c74954a6f81c1f2930ff0) | ✅ |
+| **First StrategyBond submission** | [`0x3f1c4…28dd`](https://www.oklink.com/xlayer/tx/0x3f1c4521407e0ba771f254e56cbe6febe3208b188346cf48898bd3463ba328dd) | ✅ |
+
+### Verified on-chain state (queryable now)
+
+```
+isRegistered(0x2E2F…3838)             → true
+getStake(0x2E2F…3838)                 → 5,000,000  (= 5 USDT)
+hook.getCurrentEpoch(poolId)          → 1
+hook.getBidderList(poolId, 1)         → [0x2E2F…3838]
+```
+
+YieldAgent's first StrategyBond commits to 18% APR / 30–80 bps fee band / max 6 rebalances / ±200 tick range / 2.5 USDT staked.
 
 ### Build verification
 
