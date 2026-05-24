@@ -103,6 +103,7 @@ Verify hook permissions:
 | **USDT approve for stake** | [`0xe358a…4dbd4`](https://www.oklink.com/xlayer/tx/0xe358a093f63f6401c690ecf6b30dcf7f95018b4b90f042590bd3982332c4dbd4) | ✅ |
 | **YieldAgent registration** | [`0x1efab…930ff0`](https://www.oklink.com/xlayer/tx/0x1efab864c5d145694ded8feb5003761ffc7e5d16293c74954a6f81c1f2930ff0) | ✅ |
 | **First StrategyBond submission** | [`0x3f1c4…28dd`](https://www.oklink.com/xlayer/tx/0x3f1c4521407e0ba771f254e56cbe6febe3208b188346cf48898bd3463ba328dd) | ✅ |
+| **First runElection (YieldAgent elected Active Manager)** | [`0x1a1b9…31627`](https://www.oklink.com/xlayer/tx/0x1a1b9bdf51855215e8e00c5c44a3053308b0f9f234f8cee5f84edac3b7e31627) | ✅ |
 
 ### Verified on-chain state (queryable now)
 
@@ -111,6 +112,7 @@ isRegistered(0x2E2F…3838)             → true
 getStake(0x2E2F…3838)                 → 5,000,000  (= 5 USDT)
 hook.getCurrentEpoch(poolId)          → 1
 hook.getBidderList(poolId, 1)         → [0x2E2F…3838]
+hook.getActiveManager(poolId)         → 0x2E2F…3838  ← YieldAgent elected!
 ```
 
 YieldAgent's first StrategyBond commits to 18% APR / 30–80 bps fee band / max 6 rebalances / ±200 tick range / 2.5 USDT staked.
