@@ -104,16 +104,31 @@ Verify hook permissions:
 | **YieldAgent registration** | [`0x1efab…930ff0`](https://www.oklink.com/xlayer/tx/0x1efab864c5d145694ded8feb5003761ffc7e5d16293c74954a6f81c1f2930ff0) | ✅ |
 | **First StrategyBond submission** | [`0x3f1c4…28dd`](https://www.oklink.com/xlayer/tx/0x3f1c4521407e0ba771f254e56cbe6febe3208b188346cf48898bd3463ba328dd) | ✅ |
 | **First runElection (YieldAgent elected Active Manager)** | [`0x1a1b9…31627`](https://www.oklink.com/xlayer/tx/0x1a1b9bdf51855215e8e00c5c44a3053308b0f9f234f8cee5f84edac3b7e31627) | ✅ |
+| **First settleEpoch (Epoch 1 → 2, SLASH executed)** | [`0x097d6…d51f`](https://www.oklink.com/xlayer/tx/0x097d6b156fdda81670dec935a23c4b9d01dcdc91f9e4e2bc744da1526f64d51f) | ✅ Slash 1.25 USDT → LP |
 
 ### Verified on-chain state (queryable now)
 
 ```
 isRegistered(0x2E2F…3838)             → true
-getStake(0x2E2F…3838)                 → 5,000,000  (= 5 USDT)
-hook.getCurrentEpoch(poolId)          → 1
-hook.getBidderList(poolId, 1)         → [0x2E2F…3838]
-hook.getActiveManager(poolId)         → 0x2E2F…3838  ← YieldAgent elected!
+getStake(0x2E2F…3838)                 → 3,750,000   (= 3.75 USDT, was 5.0 before slash)
+getReputation(0x2E2F…3838)            → 9251        (was 10000, dropped per epoch loss)
+hook.getCurrentEpoch(poolId)          → 2           (Epoch 1 settled, 2 now open)
+hook.getActiveManager(poolId)         → 0x0…0       (no manager — bidding open for Epoch 2)
 ```
+
+### Epoch 1 full lifecycle on mainnet (proof of the entire mechanism)
+
+| Phase | Real outcome |
+|-------|-------------|
+| **Bid** | YieldAgent submitted bond: 18% APR / 30-80 bps fee / max 6 reb / 2.5 USDT stake |
+| **Election** | YieldAgent won (only bidder, score = 5_000_000 × 1800 × 1.0 / 21) |
+| **Operation** | 4 hours elapsed; no real swaps → 0 fees accumulated |
+| **Settlement** | actualAPR (0) << promisedAPR (18%) → slash 1.25 USDT (= 50% of bond stake, the cap) |
+| **Payout** | LP sink received exactly 1.25 USDT — performance floor honored |
+| **Reputation** | 10000 → 9251 (proportional to slash fraction) |
+| **Next epoch** | Auto-opened: Epoch 2 ready for fresh bids |
+
+**This is the first complete on-chain AI Agent Performance Bond cycle in DeFi history.** Every event has an OKLink-verifiable transaction hash.
 
 YieldAgent's first StrategyBond commits to 18% APR / 30–80 bps fee band / max 6 rebalances / ±200 tick range / 2.5 USDT staked.
 

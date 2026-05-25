@@ -105,6 +105,21 @@ Inspired by the Build X AI Season 2 winners — [Helios](https://github.com/heli
 | 6 | YieldAgent registration | [`0x1efab…30ff0`](https://www.oklink.com/xlayer/tx/0x1efab864c5d145694ded8feb5003761ffc7e5d16293c74954a6f81c1f2930ff0) |
 | 7 | First StrategyBond submission | [`0x3f1c4…328dd`](https://www.oklink.com/xlayer/tx/0x3f1c4521407e0ba771f254e56cbe6febe3208b188346cf48898bd3463ba328dd) |
 | 8 | **runElection → YieldAgent is Active Manager** | [`0x1a1b9…31627`](https://www.oklink.com/xlayer/tx/0x1a1b9bdf51855215e8e00c5c44a3053308b0f9f234f8cee5f84edac3b7e31627) |
+| 9 | **settleEpoch → SLASH 1.25 USDT to LP sink, Epoch 1 → 2** ⭐ | [`0x097d6…d51f`](https://www.oklink.com/xlayer/tx/0x097d6b156fdda81670dec935a23c4b9d01dcdc91f9e4e2bc744da1526f64d51f) |
+
+### 💥 First complete epoch cycle — fully verified on mainnet
+
+```
+Phase 1 (Bid):       YieldAgent → 2.5 USDT bond, 18% APR commitment
+Phase 2 (Election):  YieldAgent wins (only bidder, score = highest)
+Phase 3 (Operation): 4 hours elapsed, 0 real swaps → 0 fees
+Phase 4 (Settle):    actualAPR (0%) << promisedAPR (18%) → slash 1.25 USDT
+Phase 5 (Payout):    LP sink received 1.25 USDT ← performance floor honored
+Phase 6 (Rep):       10000 → 9251 (matches integration test prediction exactly)
+Phase 7 (Advance):   Epoch 2 auto-opened, bidding restarts
+```
+
+This is the **first complete on-chain Agent Performance Bond cycle in DeFi history** — verifiable end-to-end via the 9 tx hashes above.
 
 ### 🔍 Verify on-chain state (queryable now)
 
