@@ -11,7 +11,7 @@ import { AgentChat } from "@/components/AgentChat";
 import { V3Positions } from "@/components/V3Positions";
 import { DecisionLog } from "@/components/DecisionLog";
 import { StrategyMonitor } from "@/components/StrategyMonitor";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { UserIntent } from "@/lib/api";
 import { useAgentState } from "@/lib/hooks";
 
@@ -44,7 +44,9 @@ export default function AppDashboardPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <IntentInput onIntent={setIntent} />
-            <DeployControls intent={intent} state={state} />
+            <Suspense fallback={<div className="card animate-pulse h-32 bg-bg-border/20" />}>
+              <DeployControls intent={intent} state={state} />
+            </Suspense>
             <StrategyMonitor />
             <V3Positions />
             <ThreeBrainPanel />

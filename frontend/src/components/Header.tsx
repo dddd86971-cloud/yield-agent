@@ -2,7 +2,7 @@
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
-import { Brain, Users, BookOpen, ExternalLink, LineChart, Coins } from "lucide-react";
+import { Brain, Users, BookOpen, ExternalLink, LineChart, Coins, Crown } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { site } from "@/config/site";
@@ -11,6 +11,7 @@ import { useAccount, useBalance } from "wagmi";
 
 const NAV = [
   { href: "/app", label: "Agent", icon: Brain },
+  { href: "/app/arena", label: "Arena", icon: Crown },
   { href: "/app/pnl", label: "PnL", icon: LineChart },
   { href: "/app/pools", label: "Pools", icon: Coins },
   { href: "/app/decisions", label: "Decision Log", icon: BookOpen },
