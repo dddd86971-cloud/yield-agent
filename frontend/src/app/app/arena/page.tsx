@@ -24,6 +24,7 @@ import {
   addrOklink,
 } from "@/lib/arenaContracts";
 import { cn } from "@/lib/utils";
+import { ArenaActions } from "@/components/arena/ArenaActions";
 import {
   Crown,
   Gavel,
@@ -328,6 +329,9 @@ export default function AgentArenaPage() {
             />
           </div>
         </div>
+
+        {/* === Participate (writes!) === */}
+        <ArenaActions />
 
         {/* === Active Bond === */}
         {activeManager && activeManager !== "0x0000000000000000000000000000000000000000" && (

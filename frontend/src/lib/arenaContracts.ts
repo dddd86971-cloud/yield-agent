@@ -111,6 +111,54 @@ export const ARENA_HOOK_ABI = [
     stateMutability: "view",
   },
 
+  // ── Writes ────────────────────────────────────────────────────────────
+  {
+    type: "function",
+    name: "submitBid",
+    inputs: [
+      {
+        components: [
+          { name: "agent", type: "address" },
+          { name: "poolId", type: "bytes32" },
+          { name: "epochId", type: "uint256" },
+          { name: "stakeAmount", type: "uint256" },
+          { name: "promisedAPRBps", type: "uint256" },
+          { name: "minFeeBps", type: "uint24" },
+          { name: "maxFeeBps", type: "uint24" },
+          { name: "maxRebalancesPerEpoch", type: "uint16" },
+          { name: "maxTickRange", type: "int24" },
+          { name: "nonce", type: "uint256" },
+          { name: "signature", type: "bytes" },
+        ],
+        name: "bond",
+        type: "tuple",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "runElection",
+    inputs: [{ name: "pid", type: "bytes32" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "settleEpoch",
+    inputs: [{ name: "pid", type: "bytes32" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "nonces",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+
   // ── Events ────────────────────────────────────────────────────────────
   {
     type: "event",
@@ -203,6 +251,26 @@ export const ARENA_REGISTRY_ABI = [
     stateMutability: "view",
   },
 
+  // ── Writes ────────────────────────────────────────────────────────────
+  {
+    type: "function",
+    name: "register",
+    inputs: [
+      { name: "name", type: "string" },
+      { name: "strategyURI", type: "string" },
+      { name: "initialStake", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "increaseStake",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+
   // Events
   {
     type: "event",
@@ -230,6 +298,40 @@ export const ARENA_REGISTRY_ABI = [
       { name: "delta", type: "int256", indexed: false },
       { name: "newReputation", type: "uint256", indexed: false },
     ],
+  },
+] as const;
+
+// ─────────────────────────────────────────────────────────────────────────
+// USDT (USD₮0) ABI — just what we need for approve/allowance/balanceOf
+// ─────────────────────────────────────────────────────────────────────────
+
+export const USDT_ABI = [
+  {
+    type: "function",
+    name: "approve",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "allowance",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
   },
 ] as const;
 
