@@ -15,7 +15,7 @@
 Built for **Hook the Future Hackathon** (X Layer × Uniswap × Flap, 5/22–5/28 2026), following
 YieldAgent's recognition in **Build X AI Season 2 — X Layer Arena**.
 
-- **Live UI**: https://frontend-cyan-tau-66.vercel.app/app/arena
+- **Live UI**: https://yield-agent-xlayer.vercel.app/app/arena
 - **Full submission doc**: [`SUBMISSION.md`](SUBMISSION.md)
 - **Demo video script**: [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md)
 - **Twitter**: [@YieldAgent_Aiz](https://x.com/YieldAgent_Aiz)
@@ -349,7 +349,7 @@ See the broader multi-brain x402 economy vision in the parent repo's
 
 ## 🔗 Links
 
-- **Live UI**: https://frontend-cyan-tau-66.vercel.app/app/arena
+- **Live UI**: https://yield-agent-xlayer.vercel.app/app/arena
 - **Parent project (YieldAgent)**: [github.com/dddd86971-cloud/yield-agent](https://github.com/dddd86971-cloud/yield-agent)
 - **Submission doc**: [`SUBMISSION.md`](SUBMISSION.md)
 - **Twitter**: [@YieldAgent_Aiz](https://x.com/YieldAgent_Aiz)

@@ -281,5 +281,5 @@ MIT.
 
 - **Twitter:** [@YieldAgent_Aiz](https://x.com/YieldAgent_Aiz)
 - **GitHub:** [github.com/dddd86971-cloud/yield-agent](https://github.com/dddd86971-cloud/yield-agent)
-- **Live demo (Build X AI S2 base):** [frontend-cyan-tau-66.vercel.app](https://frontend-cyan-tau-66.vercel.app)
+- **Live demo (Build X AI S2 base):** [yield-agent-xlayer.vercel.app](https://yield-agent-xlayer.vercel.app)
 - **Hackathon channel:** X Layer Builder Hub Telegram

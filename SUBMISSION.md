@@ -151,7 +151,7 @@ YieldAgent uses **two separate signers** for physical separation of audit and ex
 This two-signer split is the anti-gaming guarantee: if someone tried to fake OnchainOS activity by calling `recordExecution` with a fabricated tx hash, the hash would not appear in OnchainOS's own activity API. Judges can reconcile `StrategyManager.getExecutions(strategyId)[i].txHash` against the OnchainOS account's tx history — they must match 1:1.
 
 - **GitHub repo:** (public, MIT licensed)
-- **Live demo:** [frontend-cyan-tau-66.vercel.app](https://frontend-cyan-tau-66.vercel.app)
+- **Live demo:** [yield-agent-xlayer.vercel.app](https://yield-agent-xlayer.vercel.app)
 
 ### Code proof — what to grep
 
