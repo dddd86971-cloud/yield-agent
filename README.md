@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/AgentArena%20Hook-LIVE%20on%20Mainnet-00ffa3?style=for-the-badge" />
 </p>
 
-> **Live Demo**: [yield-agent-xlayer.vercel.app](https://yield-agent-xlayer.vercel.app)
+> **Live Demo**: [frontend-cyan-tau-66.vercel.app](https://frontend-cyan-tau-66.vercel.app)
 > &nbsp;|&nbsp; **GitHub**: [github.com/dddd86971-cloud/yield-agent](https://github.com/dddd86971-cloud/yield-agent)
 
 Built for **OKX Build X AI Hackathon — Season 2**, X Layer Arena Track.
@@ -497,7 +497,7 @@ cast call 0x315e413a11ab0df498ef83873012430ca36638ae \
 
 | Item | URL |
 |------|-----|
-| **Live Demo** | [yield-agent-xlayer.vercel.app](https://yield-agent-xlayer.vercel.app) |
+| **Live Demo** | [frontend-cyan-tau-66.vercel.app](https://frontend-cyan-tau-66.vercel.app) |
 | **Platform** | Vercel (auto-deploy on git push) |
 
 ---
